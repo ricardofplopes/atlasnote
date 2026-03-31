@@ -84,8 +84,8 @@ export function LoginPage() {
         <div className="bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] rounded-3xl shadow-2xl shadow-black/40 px-10 py-12">
           {/* Logo & branding */}
           <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-[72px] h-[72px] mb-6">
-              <img src="/icon.png" alt="" className="w-[72px] h-[72px]" />
+            <div className="inline-flex items-center justify-center w-24 h-24 mb-6">
+              <img src="/icon.png" alt="" className="w-24 h-24" />
             </div>
             <h1 className="font-display text-[32px] font-bold text-white tracking-tight leading-none">
               Atlas Note

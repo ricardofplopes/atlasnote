@@ -37,12 +37,14 @@ function GitHubCallbackHandler() {
 
 export default function HomePage() {
   return (
-    <AppShell>
+    <>
       <Suspense fallback={null}>
         <GitHubCallbackHandler />
       </Suspense>
-      <RecentNotes />
-    </AppShell>
+      <AppShell>
+        <RecentNotes />
+      </AppShell>
+    </>
   );
 }
 
