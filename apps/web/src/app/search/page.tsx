@@ -43,7 +43,7 @@ function SearchContent() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-display font-bold mb-6">🔍 Semantic Search</h2>
+      <h2 className="text-2xl font-display font-bold mb-6">Semantic Search</h2>
       <div className="flex gap-2 mb-6">
         <input
           value={query}

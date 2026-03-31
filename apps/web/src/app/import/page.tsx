@@ -31,7 +31,9 @@ function ImportContent() {
   const [imported, setImported] = useState(false);
   const [importedCount, setImportedCount] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
+  const [dragging, setDragging] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+  const dropRef = useRef<HTMLDivElement>(null);
 
   const addLog = (msg: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -43,15 +45,37 @@ function ImportContent() {
     }
   }, [logs]);
 
+  const addFiles = (newFiles: File[]) => {
+    const valid = newFiles.filter(f => f.name.endsWith(".txt") || f.name.endsWith(".md"));
+    if (valid.length === 0) return;
+    setFiles(valid);
+    setPreviews([]);
+    setImported(false);
+    setLogs([]);
+    addLog(`Selected ${valid.length} file(s): ${valid.map(f => f.name).join(", ")}`);
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const selected = Array.from(e.target.files);
-      setFiles(selected);
-      setPreviews([]);
-      setImported(false);
-      setLogs([]);
-      addLog(`Selected ${selected.length} file(s): ${selected.map(f => f.name).join(", ")}`);
-    }
+    if (e.target.files) addFiles(Array.from(e.target.files));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragging(false);
+    if (e.dataTransfer.files) addFiles(Array.from(e.dataTransfer.files));
   };
 
   const handleUpload = async () => {
@@ -129,19 +153,33 @@ function ImportContent() {
       </p>
 
       <div
-        className="mb-6 p-6 border-2 border-dashed rounded-xl text-center"
-        style={{ borderColor: 'var(--card-border)' }}
+        ref={dropRef}
+        className={`mb-6 p-8 border-2 border-dashed rounded-xl text-center transition-all ${dragging ? 'scale-[1.01]' : ''}`}
+        style={{
+          borderColor: dragging ? 'var(--accent)' : 'var(--card-border)',
+          background: dragging ? 'var(--accent-soft)' : 'transparent',
+        }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
+        <svg className="w-10 h-10 mx-auto mb-3 opacity-40" viewBox="0 0 20 20" fill="none" strokeWidth={1.2} stroke="currentColor" style={{ color: 'var(--text-muted)' }}>
+          <path d="M10 3v9M7 9l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4 13v2a2 2 0 002 2h8a2 2 0 002-2v-2" strokeLinecap="round" />
+        </svg>
+        <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
+          Drag & drop files here, or click to browse
+        </p>
         <input
           type="file"
           multiple
           accept=".txt,.md"
           onChange={handleFileSelect}
-          className="mb-3"
+          className="mb-1 text-sm"
           style={{ color: 'var(--text-secondary)' }}
         />
         {files.length > 0 && (
-          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{files.length} file(s) selected</p>
+          <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>{files.length} file(s) selected</p>
         )}
       </div>
 
@@ -210,7 +248,7 @@ function ImportContent() {
                 <div>
                   <p className="font-semibold" style={{ color: 'var(--foreground)' }}>{p.suggested_title}</p>
                   <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    📁 {p.suggested_section}
+                    {p.suggested_section}
                     {p.suggested_subsection && ` → ${p.suggested_subsection}`}
                   </p>
                 </div>
@@ -249,7 +287,7 @@ function ImportContent() {
                   Importing...
                 </>
               ) : (
-                <>✅ Confirm Import ({previews.length} note{previews.length > 1 ? "s" : ""})</>
+                <>Confirm Import ({previews.length} note{previews.length > 1 ? "s" : ""})</>
               )}
             </button>
           ) : (
@@ -257,7 +295,10 @@ function ImportContent() {
               className="p-4 rounded-xl flex items-center gap-3"
               style={{ background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.2)' }}
             >
-              <span className="text-lg">🎉</span>
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="none" stroke="#4ade80" strokeWidth={1.5}>
+                <circle cx="10" cy="10" r="7" />
+                <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
               <p className="font-semibold" style={{ color: '#4ade80' }}>
                 Successfully imported {importedCount} note{importedCount > 1 ? "s" : ""}!
               </p>

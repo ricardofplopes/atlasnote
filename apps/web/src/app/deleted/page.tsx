@@ -44,7 +44,7 @@ function DeletedContent() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-display font-bold mb-6">🗑️ Deleted Notes</h2>
+      <h2 className="text-2xl font-display font-bold mb-6">Deleted Notes</h2>
       {notes.length === 0 ? (
         <p style={{ color: 'var(--text-muted)' }}>No deleted notes.</p>
       ) : (

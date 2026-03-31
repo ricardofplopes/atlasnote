@@ -64,7 +64,7 @@ function ChatContent() {
 
   return (
     <div className="max-w-4xl flex flex-col h-[calc(100vh-3rem)]">
-      <h2 className="text-2xl font-display font-bold mb-4">💬 Chat with your notes</h2>
+      <h2 className="text-2xl font-display font-bold mb-4">Chat with your notes</h2>
 
       <div className="flex-1 overflow-y-auto space-y-4 mb-4">
         {messages.length === 0 && (
