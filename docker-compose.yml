@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: atlasnote
+      POSTGRES_PASSWORD: atlasnote
+      POSTGRES_DB: atlasnote
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlasnote"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://atlasnote:atlasnote@postgres:5432/atlasnote
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "cd /app && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://atlasnote:atlasnote@postgres:5432/atlasnote
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXTAUTH_URL: http://localhost:3000
+    env_file:
+      - .env
+    depends_on:
+      - api
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.mcp
+    environment:
+      API_BASE_URL: http://api:8000
+    env_file:
+      - .env
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

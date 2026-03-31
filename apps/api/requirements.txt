@@ -1,0 +1,12 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+sqlalchemy[asyncio]==2.0.*
+asyncpg==0.30.*
+alembic==1.15.*
+pgvector==0.3.*
+pydantic==2.11.*
+pydantic-settings==2.9.*
+python-jose[cryptography]==3.4.*
+httpx==0.28.*
+python-multipart==0.0.*
+openai==1.82.*

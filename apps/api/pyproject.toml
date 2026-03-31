@@ -1,0 +1,8 @@
+[project]
+name = "atlasnote-api"
+version = "0.1.0"
+description = "Atlas Note API - FastAPI backend"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
