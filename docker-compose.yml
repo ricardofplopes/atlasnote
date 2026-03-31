@@ -68,8 +68,11 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.mcp
+    ports:
+      - "9000:9000"
     environment:
       API_BASE_URL: http://api:8000
+      MCP_TRANSPORT: sse
     env_file:
       - .env
     depends_on:

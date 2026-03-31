@@ -12,4 +12,6 @@ COPY apps/worker/ .
 COPY apps/api/app/ /app/app/
 COPY packages/shared/ /app/packages/shared/
 
+ENV PYTHONPATH=/app
+
 CMD ["python", "-m", "worker"]

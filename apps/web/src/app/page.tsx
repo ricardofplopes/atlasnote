@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { listRecentNotes, loginWithGitHub } from "@/lib/api";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -16,26 +16,31 @@ interface Note {
   updated_at: string;
 }
 
-export default function HomePage() {
+function GitHubCallbackHandler() {
   const { setToken, user } = useAuth();
   const searchParams = useSearchParams();
 
-  // Handle GitHub OAuth callback
   useEffect(() => {
     const code = searchParams.get("github_code");
     if (code && !user) {
       loginWithGitHub(code)
         .then((data) => {
           setToken(data.access_token);
-          // Clean URL
           window.history.replaceState({}, "", "/");
         })
         .catch(console.error);
     }
   }, [searchParams, user, setToken]);
 
+  return null;
+}
+
+export default function HomePage() {
   return (
     <AppShell>
+      <Suspense fallback={null}>
+        <GitHubCallbackHandler />
+      </Suspense>
       <RecentNotes />
     </AppShell>
   );

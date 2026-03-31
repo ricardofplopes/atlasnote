@@ -11,4 +11,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY apps/mcp-server/ .
 COPY packages/shared/ /app/packages/shared/
 
+ENV PYTHONPATH=/app
+
 CMD ["python", "-m", "mcp_server.server"]

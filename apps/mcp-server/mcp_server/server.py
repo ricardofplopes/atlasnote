@@ -14,7 +14,12 @@ class MCPSettings(BaseSettings):
 
 
 settings = MCPSettings()
-mcp = FastMCP("Atlas Note", instructions="Manage and query notes organized by sections.")
+mcp = FastMCP(
+    "Atlas Note",
+    instructions="Manage and query notes organized by sections.",
+    host="0.0.0.0",
+    port=9000,
+)
 
 
 def _headers(user_token: str = "") -> dict:
@@ -269,4 +274,5 @@ async def resource_search(query: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    mcp.run(transport=transport)
