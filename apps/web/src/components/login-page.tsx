@@ -66,7 +66,7 @@ export function LoginPage() {
   if (!config.loaded) {
     return (
       <div className="flex items-center justify-center h-screen bg-[#141130]">
-        <img src="/logo.svg" alt="Atlas Note" className="w-16 h-16 animate-pulse" />
+        <img src="/icon.png" alt="Atlas Note" className="w-16 h-16 animate-pulse" />
       </div>
     );
   }
@@ -85,7 +85,7 @@ export function LoginPage() {
           {/* Logo & branding */}
           <div className="text-center mb-10">
             <div className="inline-flex items-center justify-center w-[72px] h-[72px] mb-6">
-              <img src="/logo.svg" alt="" className="w-[72px] h-[72px]" />
+              <img src="/icon.png" alt="" className="w-[72px] h-[72px]" />
             </div>
             <h1 className="font-display text-[32px] font-bold text-white tracking-tight leading-none">
               Atlas Note

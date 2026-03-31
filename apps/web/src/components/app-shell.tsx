@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-[#141130]">
-        <img src="/logo.svg" alt="Atlas Note" className="w-16 h-16 animate-pulse" />
+        <img src="/icon.png" alt="Atlas Note" className="w-16 h-16 animate-pulse" />
       </div>
     );
   }
