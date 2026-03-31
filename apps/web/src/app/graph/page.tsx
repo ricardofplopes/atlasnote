@@ -55,13 +55,21 @@ function GraphContent() {
   const loadGraph = useCallback(async (noteId: string) => {
     setLoading(true);
     setSelectedNote(noteId);
+    setGraphNodes([]);
+    setGraphEdges([]);
     try {
       const related = await getRelatedNotes(noteId, 12);
       const centerNote = notes.find((n) => n.id === noteId);
-      if (!centerNote) return;
+      if (!centerNote) {
+        setLoading(false);
+        return;
+      }
 
-      const centerX = 400;
-      const centerY = 300;
+      // Use canvas container dimensions for centering
+      const canvas = canvasRef.current;
+      const rect = canvas?.getBoundingClientRect();
+      const centerX = rect ? rect.width / 2 : 400;
+      const centerY = rect ? rect.height / 2 : 300;
 
       const newNodes: GraphNode[] = [
         {
@@ -78,9 +86,18 @@ function GraphContent() {
 
       const newEdges: GraphEdge[] = [];
 
+      if (related.length === 0) {
+        // No related notes found — show center node only
+        nodesRef.current = newNodes;
+        setGraphNodes(newNodes);
+        setGraphEdges([]);
+        setLoading(false);
+        return;
+      }
+
       related.forEach((r: { id: string; title: string; section_name: string; score: number }, i: number) => {
-        const angle = (2 * Math.PI * i) / related.length;
-        const dist = 150 + Math.random() * 80;
+        const angle = (2 * Math.PI * i) / related.length - Math.PI / 2;
+        const dist = 120 + related.length * 15 + Math.random() * 40;
         newNodes.push({
           id: r.id,
           title: r.title,
@@ -89,7 +106,7 @@ function GraphContent() {
           y: centerY + Math.sin(angle) * dist,
           vx: 0,
           vy: 0,
-          radius: 12 + r.score * 20,
+          radius: 14 + r.score * 18,
           isCenter: false,
           score: r.score,
         });
@@ -349,6 +366,13 @@ function GraphContent() {
               <path d="M8 8.5L5.5 6M12 8.5l2.5-2.5M8.5 12l-2 2.5M12.5 11l2 2" strokeLinecap="round" />
             </svg>
             <p className="text-sm">Select a note above to explore its connections</p>
+          </div>
+        )}
+
+        {graphNodes.length === 1 && graphEdges.length === 0 && !loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-sm">No related notes found for this note.</p>
+            <p className="text-xs mt-1 opacity-60">Notes need embeddings to find connections. Try adding more notes.</p>
           </div>
         )}
 

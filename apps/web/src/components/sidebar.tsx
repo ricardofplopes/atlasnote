@@ -271,21 +271,22 @@ function SectionItem({
 
   return (
     <div>
-      <div className="flex items-center">
-        {hasChildren && (
+      <div className="flex items-center" style={{ paddingLeft: `${depth * 12}px` }}>
+        {hasChildren ? (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="w-5 text-xs"
+            className="w-5 shrink-0 text-xs text-center"
             style={{ color: 'var(--text-muted)' }}
           >
             {expanded ? "▾" : "▸"}
           </button>
+        ) : (
+          <span className="w-5 shrink-0" />
         )}
         <Link
           href={`/sections/${section.slug}`}
-          className="flex-1 block px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors"
+          className="flex-1 block px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors truncate"
           style={{
-            paddingLeft: `${(hasChildren ? 0 : 20) + depth * 16}px`,
             background: isActive ? 'var(--accent-soft)' : 'transparent',
             color: isActive ? '#a78bfa' : 'var(--text-secondary)',
           }}

@@ -50,12 +50,19 @@ function SectionContent() {
   const [showNewSub, setShowNewSub] = useState(false);
   const [newSubName, setNewSubName] = useState("");
 
+  const [error, setError] = useState(false);
+
   const load = () => {
-    getSection(slug).then(setSection).catch(console.error);
+    setError(false);
+    getSection(slug)
+      .then(setSection)
+      .catch(() => setError(true));
     listNotesBySection(slug, true).then(setNotes).catch(console.error);
   };
 
   useEffect(() => {
+    setSection(null);
+    setNotes([]);
     load();
   }, [slug]);
 
@@ -90,6 +97,7 @@ function SectionContent() {
     router.push("/");
   };
 
+  if (error) return <div style={{ color: 'var(--text-muted)' }}>Failed to load section. Please try again.</div>;
   if (!section) return <div style={{ color: 'var(--text-muted)' }}>Loading...</div>;
 
   return (

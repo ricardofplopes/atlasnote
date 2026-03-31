@@ -26,7 +26,7 @@ async def _get_section_by_slug(
 ) -> Section:
     result = await db.execute(
         select(Section)
-        .options(selectinload(Section.children))
+        .options(selectinload(Section.children).selectinload(Section.children))
         .where(Section.slug == slug, Section.user_id == user_id)
     )
     section = result.scalar_one_or_none()

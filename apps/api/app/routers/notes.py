@@ -364,7 +364,7 @@ async def get_related_notes(
     related = []
     for row in result.all():
         score = 1 - float(row.distance) if row.distance else 0.0
-        if score < 0.3:
+        if score < 0.1:
             continue
         related.append({
             "id": str(row.id),
