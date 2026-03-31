@@ -186,3 +186,34 @@ export async function uploadFilesForImport(files: File[]) {
   if (!res.ok) throw new Error(`Import upload failed: ${res.status}`);
   return res.json();
 }
+
+interface ImportFilePreview {
+  filename: string;
+  suggested_section: string;
+  suggested_subsection: string | null;
+  suggested_title: string;
+  suggested_tags: string[];
+  content_preview: string;
+}
+
+export async function confirmImport(previews: ImportFilePreview[], files: File[]) {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("data", JSON.stringify({ files: previews }));
+  files.forEach((f) => formData.append("files", f));
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}/api/import/confirm`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Import confirm failed: ${res.status}`);
+  return res.json();
+}
+
+// Related notes
+export async function getRelatedNotes(noteId: string, limit = 8) {
+  return apiFetch(`/api/notes/${noteId}/related?limit=${limit}`);
+}

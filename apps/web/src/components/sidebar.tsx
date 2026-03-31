@@ -14,7 +14,76 @@ interface Section {
   children: Section[];
 }
 
-export function Sidebar({ onClose }: { onClose?: () => void }) {
+// SVG icons matching the logo's purple gradient style
+function IconRecentNotes({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <rect x="3" y="3" width="14" height="14" rx="2.5" />
+      <path d="M7 7h6M7 10h4M7 13h5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSearch({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <circle cx="9" cy="9" r="5" />
+      <path d="M13 13l3.5 3.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconChat({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <path d="M4 5a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H8l-3 2.5V13H4a1 1 0 01-1-1V5z" />
+      <path d="M7 7h6M7 10h3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconImport({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <path d="M10 3v9M7 9l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 13v2a2 2 0 002 2h8a2 2 0 002-2v-2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconDeleted({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <path d="M5 5h10l-.8 10a2 2 0 01-2 1.8H7.8a2 2 0 01-2-1.8L5 5z" />
+      <path d="M3.5 5h13M8 3h4" strokeLinecap="round" />
+      <path d="M8.5 8v5M11.5 8v5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconGraph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <circle cx="10" cy="10" r="2.5" />
+      <circle cx="4" cy="5" r="1.5" />
+      <circle cx="16" cy="5" r="1.5" />
+      <circle cx="5" cy="16" r="1.5" />
+      <circle cx="16" cy="14" r="1.5" />
+      <path d="M8 8.5L5.5 6M12 8.5l2.5-2.5M8.5 12l-2 2.5M12.5 11l2 2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const navItems = [
+  { href: "/", label: "Recent Notes", Icon: IconRecentNotes },
+  { href: "/search", label: "Search", Icon: IconSearch },
+  { href: "/chat", label: "Chat", Icon: IconChat },
+  { href: "/graph", label: "Graph", Icon: IconGraph },
+  { href: "/import", label: "Import", Icon: IconImport },
+  { href: "/deleted", label: "Deleted", Icon: IconDeleted },
+];
+
+export function Sidebar({ onClose, width }: { onClose?: () => void; width?: number }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const [sections, setSections] = useState<Section[]>([]);
@@ -37,18 +106,12 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     loadSections();
   };
 
-  const navItems = [
-    { href: "/", label: "Recent Notes", icon: "📋" },
-    { href: "/search", label: "Search", icon: "🔍" },
-    { href: "/chat", label: "Chat", icon: "💬" },
-    { href: "/import", label: "Import", icon: "📥" },
-    { href: "/deleted", label: "Deleted", icon: "🗑️" },
-  ];
-
   return (
     <aside
-      className="w-64 min-w-[256px] flex flex-col h-full border-r"
+      className="flex flex-col h-full border-r overflow-hidden"
       style={{
+        width: width || 260,
+        minWidth: width || 260,
         background: 'var(--sidebar-bg)',
         borderColor: 'var(--card-border)',
       }}
@@ -90,8 +153,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                 if (!isActive) e.currentTarget.style.background = 'transparent';
               }}
             >
-              <span className="text-base leading-none w-5 text-center">{item.icon}</span>
-              <span>{item.label}</span>
+              <item.Icon className="w-[18px] h-[18px] shrink-0" />
+              <span className="truncate">{item.label}</span>
             </Link>
           );
         })}

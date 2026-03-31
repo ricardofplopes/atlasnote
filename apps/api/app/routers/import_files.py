@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -51,7 +51,7 @@ async def upload_files(
     previews = []
 
     for file in files:
-        if not file.filename or not file.filename.endswith(".txt"):
+        if not file.filename or not (file.filename.endswith(".txt") or file.filename.endswith(".md")):
             continue
 
         content = (await file.read()).decode("utf-8", errors="replace")
@@ -92,12 +92,13 @@ async def upload_files(
 
 @router.post("/confirm", response_model=list[NoteResponse])
 async def confirm_import(
-    data: ImportConfirmRequest,
+    data: str = Form(...),
     files: list[UploadFile] = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Confirm and execute the import plan."""
+    import_data = ImportConfirmRequest(**json.loads(data))
     created_notes = []
     file_contents = {}
 
@@ -105,7 +106,7 @@ async def confirm_import(
         if file.filename:
             file_contents[file.filename] = (await file.read()).decode("utf-8", errors="replace")
 
-    for item in data.files:
+    for item in import_data.files:
         content = file_contents.get(item.filename, "")
 
         # Find or create section

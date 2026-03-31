@@ -310,3 +310,69 @@ async def restore_version(
     note.content = version.content
     note.updated_at = datetime.now(timezone.utc)
     return note
+
+
+# ── Related Notes ──
+
+@router.get("/{note_id}/related")
+async def get_related_notes(
+    note_id: uuid.UUID,
+    limit: int = Query(8, ge=1, le=20),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Find notes related to a given note via vector similarity."""
+    from app.models import NoteChunk
+    from sqlalchemy import text as sql_text
+
+    note = await _get_note(note_id, user.id, db)
+
+    # Get the note's chunk embeddings
+    chunk_result = await db.execute(
+        select(NoteChunk.embedding)
+        .where(NoteChunk.note_id == note_id, NoteChunk.embedding.isnot(None))
+        .limit(1)
+    )
+    chunk = chunk_result.scalar_one_or_none()
+    if chunk is None:
+        return []
+
+    # Find similar chunks from OTHER notes
+    embedding_str = "[" + ",".join(str(x) for x in chunk) + "]"
+    result = await db.execute(
+        select(
+            Note.id,
+            Note.title,
+            Note.tags,
+            Note.updated_at,
+            Section.name.label("section_name"),
+            func.min(NoteChunk.embedding.cosine_distance(embedding_str)).label("distance"),
+        )
+        .join(NoteChunk, NoteChunk.note_id == Note.id)
+        .join(Section, Note.section_id == Section.id)
+        .where(
+            Note.user_id == user.id,
+            Note.is_deleted == False,
+            Note.id != note_id,
+            NoteChunk.embedding.isnot(None),
+        )
+        .group_by(Note.id, Note.title, Note.tags, Note.updated_at, Section.name)
+        .order_by(sql_text("distance ASC"))
+        .limit(limit)
+    )
+
+    related = []
+    for row in result.all():
+        score = 1 - float(row.distance) if row.distance else 0.0
+        if score < 0.3:
+            continue
+        related.append({
+            "id": str(row.id),
+            "title": row.title,
+            "section_name": row.section_name,
+            "tags": row.tags or [],
+            "score": round(score, 3),
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        })
+
+    return related

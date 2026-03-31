@@ -1,6 +1,12 @@
 # Atlas Note
 
-A self-hosted, Dockerized, MCP-compatible note management system with semantic search and LLM-powered Q&A.
+<p align="center">
+  <img src="docs/app-image.png" alt="Atlas Note" width="600" />
+</p>
+
+<p align="center">
+  A self-hosted, Dockerized, MCP-compatible note management system with semantic search and LLM-powered Q&A.
+</p>
 
 ## Features
 
@@ -45,7 +51,7 @@ A self-hosted, Dockerized, MCP-compatible note management system with semantic s
 | Frontend | Next.js (App Router) + Tailwind CSS |
 | Backend | FastAPI (Python) |
 | Database | PostgreSQL + pgvector |
-| Auth | Google OAuth 2.0 + JWT |
+| Auth | GitHub OAuth / Google OAuth + JWT |
 | Worker | Python background service |
 | MCP Server | Python MCP SDK (FastMCP) |
 | LLM | OpenAI-compatible / Azure OpenAI / Ollama |
