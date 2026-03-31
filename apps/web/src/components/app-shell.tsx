@@ -10,8 +10,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full" />
+      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+        <img src="/icon.png" alt="Atlas Note" className="w-14 h-14 object-contain animate-pulse" />
       </div>
     );
   }

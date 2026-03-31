@@ -85,10 +85,8 @@ export function LoginPage() {
         <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl p-10">
           {/* Logo & branding */}
           <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-500/20 rounded-2xl mb-5">
-              <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-              </svg>
+            <div className="inline-flex items-center justify-center w-20 h-20 mb-5">
+              <img src="/icon.png" alt="Atlas Note" className="w-20 h-20 object-contain drop-shadow-lg" />
             </div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Atlas Note</h1>
             <p className="mt-2 text-sm text-indigo-200/60">

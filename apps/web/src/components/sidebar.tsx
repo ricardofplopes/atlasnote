@@ -48,7 +48,10 @@ export function Sidebar() {
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-full">
       <div className="p-4 border-b border-gray-200">
-        <h1 className="text-xl font-bold text-indigo-600">📝 Atlas Note</h1>
+        <div className="flex items-center gap-2.5">
+          <img src="/icon.png" alt="" className="w-7 h-7 object-contain" />
+          <h1 className="text-lg font-bold text-indigo-600 tracking-tight">Atlas Note</h1>
+        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
