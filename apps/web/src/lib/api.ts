@@ -31,6 +31,13 @@ export async function loginWithGoogle(accessToken: string) {
   });
 }
 
+export async function loginWithGitHub(code: string) {
+  return apiFetch("/api/auth/github", {
+    method: "POST",
+    body: JSON.stringify({ token: code }),
+  });
+}
+
 export async function getMe() {
   return apiFetch("/api/auth/me");
 }

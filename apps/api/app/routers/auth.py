@@ -16,6 +16,8 @@ security = HTTPBearer()
 settings = get_settings()
 
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+GITHUB_USER_URL = "https://api.github.com/user"
 
 
 def create_access_token(user_id: str) -> str:
@@ -45,6 +47,30 @@ async def get_current_user(
     return user
 
 
+async def _upsert_user(
+    db: AsyncSession, provider_id: str, email: str, name: str, avatar_url: str | None
+) -> User:
+    """Find or create a user by provider ID."""
+    result = await db.execute(select(User).where(User.google_id == provider_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=email,
+            name=name,
+            avatar_url=avatar_url,
+            google_id=provider_id,
+        )
+        db.add(user)
+        await db.flush()
+    else:
+        user.last_login = datetime.now(timezone.utc)
+        user.name = name
+        user.avatar_url = avatar_url
+
+    return user
+
+
 @router.post("/google", response_model=TokenResponse)
 async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     """Exchange a Google OAuth access token for a JWT."""
@@ -65,23 +91,49 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
     if not google_id or not email:
         raise HTTPException(status_code=401, detail="Could not get user info from Google")
 
-    result = await db.execute(select(User).where(User.google_id == google_id))
-    user = result.scalar_one_or_none()
+    user = await _upsert_user(db, f"google:{google_id}", email, name, avatar_url)
+    token = create_access_token(str(user.id))
+    return TokenResponse(access_token=token)
 
-    if user is None:
-        user = User(
-            email=email,
-            name=name,
-            avatar_url=avatar_url,
-            google_id=google_id,
+
+@router.post("/github", response_model=TokenResponse)
+async def github_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
+    """Exchange a GitHub OAuth code for a JWT."""
+    # Exchange code for access token
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            GITHUB_TOKEN_URL,
+            json={
+                "client_id": settings.GITHUB_CLIENT_ID,
+                "client_secret": settings.GITHUB_CLIENT_SECRET,
+                "code": request.token,
+            },
+            headers={"Accept": "application/json"},
         )
-        db.add(user)
-        await db.flush()
-    else:
-        user.last_login = datetime.now(timezone.utc)
-        user.name = name
-        user.avatar_url = avatar_url
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="GitHub token exchange failed")
+        token_data = token_resp.json()
 
+    access_token = token_data.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=401, detail=f"GitHub auth error: {token_data.get('error_description', 'unknown')}")
+
+    # Get user info
+    async with httpx.AsyncClient() as client:
+        user_resp = await client.get(
+            GITHUB_USER_URL,
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        )
+        if user_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="Failed to get GitHub user info")
+        gh_user = user_resp.json()
+
+    github_id = str(gh_user.get("id"))
+    email = gh_user.get("email") or f"{gh_user['login']}@github.noreply.com"
+    name = gh_user.get("name") or gh_user.get("login")
+    avatar_url = gh_user.get("avatar_url")
+
+    user = await _upsert_user(db, f"github:{github_id}", email, name, avatar_url)
     token = create_access_token(str(user.id))
     return TokenResponse(access_token=token)
 
