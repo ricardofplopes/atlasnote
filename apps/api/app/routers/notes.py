@@ -129,6 +129,7 @@ async def create_note(
         content=data.content,
         tags=data.tags,
         is_pinned=data.is_pinned,
+        source_url=data.source_url,
     )
     db.add(note)
     await db.flush()
@@ -176,6 +177,8 @@ async def update_note(
         note.tags = data.tags
     if data.is_pinned is not None:
         note.is_pinned = data.is_pinned
+    if data.source_url is not None:
+        note.source_url = data.source_url
     note.updated_at = datetime.now(timezone.utc)
     return note
 

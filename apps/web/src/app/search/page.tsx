@@ -26,12 +26,13 @@ function SearchContent() {
   const [results, setResults] = useState<ChunkResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [mode, setMode] = useState<"hybrid" | "semantic" | "keyword">("hybrid");
 
   const handleSearch = async () => {
     if (!query.trim()) return;
     setLoading(true);
     try {
-      const data = await semanticSearch(query);
+      const data = await semanticSearch(query, undefined, 10, mode);
       setResults(data.results);
       setSearched(true);
     } catch (e) {
@@ -43,19 +44,18 @@ function SearchContent() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-display font-bold mb-6">Semantic Search</h2>
-      <div className="flex gap-2 mb-6">
+      <h2 className="text-2xl font-display font-bold mb-6">Search</h2>
+      <div className="flex gap-2 mb-3">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="Search your notes by meaning..."
+          placeholder="Search your notes..."
           className="flex-1 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 text-lg"
           style={{
             background: 'rgba(255,255,255,0.06)',
             border: '1px solid var(--card-border)',
             color: 'var(--foreground)',
-            ['--tw-ring-color' as string]: 'var(--accent)',
           }}
         />
         <button
@@ -66,6 +66,24 @@ function SearchContent() {
         >
           {loading ? "..." : "Search"}
         </button>
+      </div>
+
+      {/* Search mode selector */}
+      <div className="flex gap-2 mb-6">
+        {(["hybrid", "semantic", "keyword"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            style={{
+              background: mode === m ? 'var(--accent)' : 'rgba(255,255,255,0.06)',
+              color: mode === m ? '#fff' : 'var(--text-secondary)',
+              border: `1px solid ${mode === m ? 'var(--accent)' : 'var(--card-border)'}`,
+            }}
+          >
+            {m === "hybrid" ? "Hybrid" : m === "semantic" ? "Semantic" : "Keyword"}
+          </button>
+        ))}
       </div>
 
       {searched && results.length === 0 && (

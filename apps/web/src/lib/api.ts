@@ -100,7 +100,7 @@ export async function getNote(id: string) {
 
 export async function updateNote(
   id: string,
-  data: { title?: string; content?: string; tags?: string[] }
+  data: { title?: string; content?: string; tags?: string[]; source_url?: string }
 ) {
   return apiFetch(`/api/notes/${id}`, {
     method: "PUT",
@@ -151,8 +151,13 @@ export async function restoreVersion(noteId: string, versionId: string) {
 }
 
 // Search
-export async function semanticSearch(query: string, sectionSlug?: string, limit = 10) {
-  const data: Record<string, unknown> = { query, limit };
+export async function semanticSearch(
+  query: string,
+  sectionSlug?: string,
+  limit = 10,
+  mode: "hybrid" | "semantic" | "keyword" = "hybrid"
+) {
+  const data: Record<string, unknown> = { query, limit, mode };
   if (sectionSlug) data.section_slug = sectionSlug;
   return apiFetch("/api/search", {
     method: "POST",
@@ -167,6 +172,44 @@ export async function chat(question: string, sectionSlug?: string, history: unkn
   return apiFetch("/api/chat", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+// Streaming Chat — returns EventSource-compatible URL and body
+export function streamChat(question: string, sectionSlug?: string, history: unknown[] = []) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const data: Record<string, unknown> = { question, history };
+  if (sectionSlug) data.section_slug = sectionSlug;
+
+  return fetch(`${API_URL}/api/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+}
+
+// Wiki
+export async function generateWiki(sectionSlug: string, topic?: string) {
+  const data: Record<string, unknown> = { section_slug: sectionSlug };
+  if (topic) data.topic = topic;
+  return apiFetch("/api/wiki/generate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// Settings
+export async function getSettings() {
+  return apiFetch("/api/settings");
+}
+
+export async function updateSettings(items: { key: string; value: string | null }[]) {
+  return apiFetch("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(items),
   });
 }
 

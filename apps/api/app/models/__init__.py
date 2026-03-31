@@ -67,6 +67,8 @@ class Note(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
+    source_url = Column(String(2048), nullable=True)
+
     user = relationship("User", back_populates="notes")
     section = relationship("Section", back_populates="notes")
     versions = relationship("NoteVersion", back_populates="note", cascade="all, delete-orphan", order_by="NoteVersion.version_number.desc()")
@@ -113,4 +115,18 @@ class NoteChunk(Base):
 
     __table_args__ = (
         Index("ix_note_chunks_note", "note_id"),
+    )
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key = Column(String(255), nullable=False)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_settings_user_key", "user_id", "key", unique=True),
     )

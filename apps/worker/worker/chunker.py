@@ -1,5 +1,6 @@
-"""Chunking and embedding pipeline."""
+"""Chunking, embedding, and auto-tagging pipeline."""
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -19,6 +20,48 @@ async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit
 
 CHUNK_SIZE = 512  # approximate tokens
 CHUNK_OVERLAP = 50
+
+AUTO_TAG_PROMPT = """You are a knowledge management assistant. Extract relevant tags from the following note content.
+
+Rules:
+- Return 2-6 tags that describe the main topics, people, projects, or concepts
+- Tags should be short (1-3 words each)
+- Use title case
+- Focus on what would help the user find this note later
+- Do not include generic tags like "Note" or "Text"
+
+Return ONLY a JSON array of strings, nothing else. Example: ["Machine Learning", "Python", "Data Pipeline"]
+
+Note title: {title}
+
+Note content (first 2000 chars):
+{content}"""
+
+
+async def extract_tags(title: str, content: str) -> list[str]:
+    """Use LLM to extract tags from note content."""
+    try:
+        provider = get_llm_provider()
+        prompt = AUTO_TAG_PROMPT.format(
+            title=title,
+            content=content[:2000],
+        )
+        result = await provider.chat([
+            {"role": "system", "content": "You are a tagging assistant. Return only valid JSON arrays."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+
+        # Parse JSON from response
+        result = result.strip()
+        if result.startswith("```"):
+            result = re.sub(r"```\w*\n?", "", result).strip().rstrip("`")
+
+        tags = json.loads(result)
+        if isinstance(tags, list):
+            return [str(t).strip() for t in tags if isinstance(t, str) and t.strip()][:6]
+    except Exception as e:
+        logger.warning(f"Auto-tagging failed: {e}")
+    return []
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
@@ -104,6 +147,21 @@ async def process_note(note_id, content: str, session: AsyncSession):
     logger.info(f"Processed note {note_id}: {len(chunks)} chunks created")
 
 
+async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession):
+    """Auto-tag a note if it has no tags."""
+    if existing_tags:
+        return
+
+    tags = await extract_tags(title, content)
+    if tags:
+        from sqlalchemy import update
+        await session.execute(
+            update(Note).where(Note.id == note_id).values(tags=tags)
+        )
+        await session.commit()
+        logger.info(f"Auto-tagged note {note_id}: {tags}")
+
+
 async def run_worker():
     """Main worker loop — polls for notes that need re-chunking."""
     logger.info("Worker loop started")
@@ -128,6 +186,7 @@ async def run_worker():
                 for note in notes:
                     try:
                         await process_note(note.id, note.content, session)
+                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session)
                     except Exception as e:
                         logger.error(f"Error processing note {note.id}: {e}")
                         await session.rollback()

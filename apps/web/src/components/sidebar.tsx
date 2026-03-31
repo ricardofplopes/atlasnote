@@ -74,13 +74,34 @@ function IconGraph({ className }: { className?: string }) {
   );
 }
 
+function IconWiki({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <path d="M4 3h12a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" />
+      <path d="M7 3v14" />
+      <path d="M10 7h4M10 10h4M10 13h3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSettings({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <circle cx="10" cy="10" r="2.5" />
+      <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.2 4.2l1.4 1.4M14.4 14.4l1.4 1.4M15.8 4.2l-1.4 1.4M5.6 14.4l-1.4 1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const navItems = [
   { href: "/", label: "Recent Notes", Icon: IconRecentNotes },
   { href: "/search", label: "Search", Icon: IconSearch },
   { href: "/chat", label: "Chat", Icon: IconChat },
+  { href: "/wiki", label: "Wiki", Icon: IconWiki },
   { href: "/graph", label: "Graph", Icon: IconGraph },
   { href: "/import", label: "Import", Icon: IconImport },
   { href: "/deleted", label: "Deleted", Icon: IconDeleted },
+  { href: "/settings", label: "Settings", Icon: IconSettings },
 ];
 
 export function Sidebar({ onClose, width }: { onClose?: () => void; width?: number }) {

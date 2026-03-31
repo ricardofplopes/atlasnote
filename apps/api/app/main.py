@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
-from app.routers import sections, notes, auth, search, chat, import_files
+from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router
 
 settings = get_settings()
 
@@ -24,6 +24,8 @@ app.include_router(sections.router, prefix="/api/sections", tags=["sections"])
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(wiki.router, prefix="/api/wiki", tags=["wiki"])
+app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(import_files.router, prefix="/api/import", tags=["import"])
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   getNote,
@@ -11,7 +11,16 @@ import {
   togglePin,
   listVersions,
   restoreVersion,
+  getRelatedNotes,
 } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import dynamic from "next/dynamic";
+
+// Lazy load CodeMirror to avoid SSR issues
+const MarkdownEditor = dynamic(
+  () => import("@/components/markdown-editor").then((mod) => ({ default: mod.MarkdownEditor })),
+  { ssr: false, loading: () => <div className="h-96 rounded-xl animate-pulse" style={{ background: "rgba(255,255,255,0.04)" }} /> }
+);
 
 interface Note {
   id: string;
@@ -21,6 +30,7 @@ interface Note {
   tags: string[];
   is_pinned: boolean;
   is_deleted: boolean;
+  source_url?: string;
   updated_at: string;
   created_at: string;
 }
@@ -34,11 +44,113 @@ interface Version {
   created_at: string;
 }
 
+interface RelatedNote {
+  id: string;
+  title: string;
+  section_name: string;
+  score: number;
+}
+
 export default function NotePage() {
   return (
     <AppShell>
       <NoteContent />
     </AppShell>
+  );
+}
+
+function MiniGraph({ noteId, noteTitle }: { noteId: string; noteTitle: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [related, setRelated] = useState<RelatedNote[]>([]);
+  const router = useRouter();
+
+  useEffect(() => {
+    getRelatedNotes(noteId, 6).then(setRelated).catch(() => setRelated([]));
+  }, [noteId]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || related.length === 0) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const radius = Math.min(w, h) * 0.32;
+
+    // Node positions
+    const nodes = [
+      { x: cx, y: cy, label: noteTitle.slice(0, 20), id: noteId, isCenter: true },
+      ...related.map((r, i) => {
+        const angle = (i / related.length) * Math.PI * 2 - Math.PI / 2;
+        return {
+          x: cx + Math.cos(angle) * radius,
+          y: cy + Math.sin(angle) * radius,
+          label: r.title.slice(0, 18),
+          id: r.id,
+          isCenter: false,
+          score: r.score,
+        };
+      }),
+    ];
+
+    // Draw edges
+    for (let i = 1; i < nodes.length; i++) {
+      ctx.beginPath();
+      ctx.moveTo(nodes[0].x, nodes[0].y);
+      ctx.lineTo(nodes[i].x, nodes[i].y);
+      ctx.strokeStyle = "rgba(122,92,255,0.2)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const node of nodes) {
+      const r = node.isCenter ? 8 : 6;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = node.isCenter ? "#7A5CFF" : "rgba(122,92,255,0.5)";
+      ctx.fill();
+
+      ctx.font = "10px Inter, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.7)";
+      ctx.textAlign = "center";
+      ctx.fillText(node.label, node.x, node.y + r + 12);
+    }
+
+    // Click handler
+    const handleClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      for (const node of nodes) {
+        if (!node.isCenter && Math.hypot(mx - node.x, my - node.y) < 12) {
+          router.push(`/notes/${node.id}`);
+          break;
+        }
+      }
+    };
+
+    canvas.addEventListener("click", handleClick);
+    return () => canvas.removeEventListener("click", handleClick);
+  }, [related, noteId, noteTitle, router]);
+
+  if (related.length === 0) return null;
+
+  return (
+    <div className="mt-6 p-4 rounded-xl" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
+      <h4 className="text-sm font-semibold mb-2" style={{ color: "var(--text-muted)" }}>Related Notes</h4>
+      <canvas ref={canvasRef} className="w-full cursor-pointer" style={{ height: "200px" }} />
+    </div>
   );
 }
 
@@ -51,6 +163,7 @@ function NoteContent() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [tags, setTags] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [versions, setVersions] = useState<Version[]>([]);
   const [showVersions, setShowVersions] = useState(false);
 
@@ -60,6 +173,7 @@ function NoteContent() {
       setTitle(n.title);
       setContent(n.content);
       setTags((n.tags || []).join(", "));
+      setSourceUrl(n.source_url || "");
     });
   };
 
@@ -72,6 +186,7 @@ function NoteContent() {
       title,
       content,
       tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      source_url: sourceUrl || undefined,
     });
     setEditing(false);
     load();
@@ -171,17 +286,10 @@ function NoteContent() {
               ['--tw-ring-color' as string]: 'var(--accent)',
             }}
           />
-          <textarea
+          <MarkdownEditor
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            rows={20}
-            className="w-full px-3 py-2 rounded-xl focus:outline-none focus:ring-2 font-mono text-sm"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
-            }}
+            onChange={setContent}
+            placeholder="Write your note in markdown..."
           />
           <input
             value={tags}
@@ -192,7 +300,17 @@ function NoteContent() {
               background: 'rgba(255,255,255,0.06)',
               border: '1px solid var(--card-border)',
               color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
+            }}
+          />
+          <input
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="Source URL (optional)"
+            className="w-full px-3 py-2 rounded-xl focus:outline-none focus:ring-2"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid var(--card-border)',
+              color: 'var(--foreground)',
             }}
           />
           <button
@@ -206,27 +324,32 @@ function NoteContent() {
       ) : (
         <div>
           <h1 className="text-2xl font-display font-bold mb-2">{note.title}</h1>
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-2 mb-4 flex-wrap">
             {note.tags?.map((tag) => (
               <span key={tag} className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}>
                 {tag}
               </span>
             ))}
           </div>
+          {note.source_url && (
+            <a href={note.source_url} target="_blank" rel="noopener noreferrer"
+              className="text-xs mb-3 inline-block hover:underline" style={{ color: 'var(--accent)' }}>
+              Source: {note.source_url}
+            </a>
+          )}
           <div
-            className="p-6 rounded-xl"
-            style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+            className="p-6 rounded-xl prose prose-invert prose-sm max-w-none"
+            style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--foreground)' }}
           >
-            {note.content.split("\n").map((line, i) => (
-              <p key={i} className={line ? "" : "h-4"} style={{ color: 'var(--foreground)' }}>
-                {line}
-              </p>
-            ))}
+            <ReactMarkdown>{note.content}</ReactMarkdown>
           </div>
           <p className="text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
             Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
             {new Date(note.updated_at).toLocaleString()}
           </p>
+
+          {/* Mini neighborhood graph */}
+          <MiniGraph noteId={noteId} noteTitle={note.title} />
         </div>
       )}
 

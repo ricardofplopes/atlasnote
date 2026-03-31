@@ -15,14 +15,28 @@ interface GraphNode {
   vx: number;
   vy: number;
   radius: number;
-  isCenter: boolean;
-  score?: number;
 }
 
 interface GraphEdge {
   source: string;
   target: string;
   score: number;
+}
+
+const SECTION_COLORS: Record<string, string> = {};
+const COLOR_PALETTE = [
+  "#7A5CFF", "#FF6B9D", "#00D4AA", "#FFB347",
+  "#45B7D1", "#FF6F61", "#98D8C8", "#C4A1FF",
+  "#F7DC6F", "#82E0AA", "#85C1E9", "#F1948A",
+];
+let colorIdx = 0;
+
+function getSectionColor(section: string): string {
+  if (!SECTION_COLORS[section]) {
+    SECTION_COLORS[section] = COLOR_PALETTE[colorIdx % COLOR_PALETTE.length];
+    colorIdx++;
+  }
+  return SECTION_COLORS[section];
 }
 
 export default function GraphPage() {
@@ -37,161 +51,151 @@ function GraphContent() {
   const { user } = useAuth();
   const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [notes, setNotes] = useState<Array<{ id: string; title: string }>>([]);
-  const [selectedNote, setSelectedNote] = useState<string | null>(null);
-  const [graphNodes, setGraphNodes] = useState<GraphNode[]>([]);
-  const [graphEdges, setGraphEdges] = useState<GraphEdge[]>([]);
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const animationRef = useRef<number>(0);
   const nodesRef = useRef<GraphNode[]>([]);
+  const edgesRef = useRef<GraphEdge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user) {
-      listRecentNotes(50).then(setNotes).catch(console.error);
-    }
-  }, [user]);
+  // Pan & zoom state
+  const panRef = useRef({ x: 0, y: 0 });
+  const zoomRef = useRef(1);
+  const draggingRef = useRef(false);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+  const animRef = useRef<number>(0);
 
-  const loadGraph = useCallback(async (noteId: string) => {
+  const loadAllNotes = useCallback(async () => {
     setLoading(true);
-    setSelectedNote(noteId);
-    setGraphNodes([]);
-    setGraphEdges([]);
     try {
-      const related = await getRelatedNotes(noteId, 12);
-      const centerNote = notes.find((n) => n.id === noteId);
-      if (!centerNote) {
+      const allNotes = await listRecentNotes(100);
+      if (!allNotes || allNotes.length === 0) {
         setLoading(false);
         return;
       }
 
-      // Use canvas container dimensions for centering
       const canvas = canvasRef.current;
-      const rect = canvas?.getBoundingClientRect();
-      const centerX = rect ? rect.width / 2 : 400;
-      const centerY = rect ? rect.height / 2 : 300;
+      const w = canvas?.clientWidth || 800;
+      const h = canvas?.clientHeight || 600;
+      const cx = w / 2;
+      const cy = h / 2;
 
-      const newNodes: GraphNode[] = [
-        {
-          id: centerNote.id,
-          title: centerNote.title,
-          x: centerX,
-          y: centerY,
+      // Position notes in a spiral layout
+      const nodes: GraphNode[] = allNotes.map((n: any, i: number) => {
+        const angle = i * 0.8;
+        const r = 50 + i * 12;
+        return {
+          id: n.id,
+          title: n.title,
+          section: n.section_id,
+          x: cx + Math.cos(angle) * r + (Math.random() - 0.5) * 30,
+          y: cy + Math.sin(angle) * r + (Math.random() - 0.5) * 30,
           vx: 0,
           vy: 0,
-          radius: 32,
-          isCenter: true,
-        },
-      ];
-
-      const newEdges: GraphEdge[] = [];
-
-      if (related.length === 0) {
-        // No related notes found — show center node only
-        nodesRef.current = newNodes;
-        setGraphNodes(newNodes);
-        setGraphEdges([]);
-        setLoading(false);
-        return;
-      }
-
-      related.forEach((r: { id: string; title: string; section_name: string; score: number }, i: number) => {
-        const angle = (2 * Math.PI * i) / related.length - Math.PI / 2;
-        const dist = 120 + related.length * 15 + Math.random() * 40;
-        newNodes.push({
-          id: r.id,
-          title: r.title,
-          section: r.section_name,
-          x: centerX + Math.cos(angle) * dist,
-          y: centerY + Math.sin(angle) * dist,
-          vx: 0,
-          vy: 0,
-          radius: 14 + r.score * 18,
-          isCenter: false,
-          score: r.score,
-        });
-        newEdges.push({ source: centerNote.id, target: r.id, score: r.score });
+          radius: 8,
+        };
       });
+      nodesRef.current = nodes;
 
-      nodesRef.current = newNodes;
-      setGraphNodes(newNodes);
-      setGraphEdges(newEdges);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [notes]);
-
-  // Force simulation
-  useEffect(() => {
-    if (graphNodes.length === 0) return;
-
-    const simulate = () => {
-      const nodes = nodesRef.current;
-      const centerX = 400;
-      const centerY = 300;
-
-      // Apply forces
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-
-        // Center gravity
-        if (!node.isCenter) {
-          node.vx += (centerX - node.x) * 0.001;
-          node.vy += (centerY - node.y) * 0.001;
-        }
-
-        // Repulsion between nodes
-        for (let j = i + 1; j < nodes.length; j++) {
-          const other = nodes[j];
-          const dx = node.x - other.x;
-          const dy = node.y - other.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const minDist = node.radius + other.radius + 40;
-          if (dist < minDist) {
-            const force = (minDist - dist) * 0.05;
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
-            if (!node.isCenter) { node.vx += fx; node.vy += fy; }
-            if (!other.isCenter) { other.vx -= fx; other.vy -= fy; }
-          }
-        }
-
-        // Spring force for connected edges
-        graphEdges.forEach((edge) => {
-          if (edge.source === node.id || edge.target === node.id) {
-            const otherId = edge.source === node.id ? edge.target : edge.source;
-            const other = nodes.find((n) => n.id === otherId);
-            if (!other) return;
-            const dx = other.x - node.x;
-            const dy = other.y - node.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const idealDist = 180;
-            const force = (dist - idealDist) * 0.003;
-            if (!node.isCenter) {
-              node.vx += (dx / dist) * force;
-              node.vy += (dy / dist) * force;
+      // Fetch relationships for all notes (batch)
+      const allEdges: GraphEdge[] = [];
+      const batchSize = 5;
+      for (let i = 0; i < Math.min(nodes.length, 30); i += batchSize) {
+        const batch = nodes.slice(i, i + batchSize);
+        const results = await Promise.all(
+          batch.map((n) => getRelatedNotes(n.id, 5).catch(() => []))
+        );
+        for (let j = 0; j < batch.length; j++) {
+          for (const rel of results[j]) {
+            if (nodes.some((n) => n.id === rel.id)) {
+              const exists = allEdges.some(
+                (e) => (e.source === batch[j].id && e.target === rel.id) ||
+                       (e.source === rel.id && e.target === batch[j].id)
+              );
+              if (!exists) {
+                allEdges.push({ source: batch[j].id, target: rel.id, score: rel.score });
+                // Update section color
+                const targetNode = nodes.find((n) => n.id === rel.id);
+                if (targetNode && rel.section_name) {
+                  targetNode.section = rel.section_name;
+                }
+              }
             }
           }
-        });
+        }
+      }
+      edgesRef.current = allEdges;
+      setLoading(false);
+    } catch (e) {
+      console.error(e);
+      setLoading(false);
+    }
+  }, []);
 
-        // Damping and position update
-        node.vx *= 0.9;
-        node.vy *= 0.9;
-        if (!node.isCenter) {
-          node.x += node.vx;
-          node.y += node.vy;
+  useEffect(() => {
+    if (user) loadAllNotes();
+  }, [user, loadAllNotes]);
+
+  // Physics simulation
+  useEffect(() => {
+    let running = true;
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+
+    const simulate = () => {
+      if (!running || nodes.length === 0) return;
+
+      // Node repulsion
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[j].x - nodes[i].x;
+          const dy = nodes[j].y - nodes[i].y;
+          const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+          const force = 800 / (dist * dist);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          nodes[i].vx -= fx;
+          nodes[i].vy -= fy;
+          nodes[j].vx += fx;
+          nodes[j].vy += fy;
         }
       }
 
-      setGraphNodes([...nodes]);
-      animationRef.current = requestAnimationFrame(simulate);
+      // Edge attraction
+      for (const edge of edges) {
+        const a = nodes.find((n) => n.id === edge.source);
+        const b = nodes.find((n) => n.id === edge.target);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const targetDist = 120;
+        const force = (dist - targetDist) * 0.01 * edge.score;
+        a.vx += (dx / dist) * force;
+        a.vy += (dy / dist) * force;
+        b.vx -= (dx / dist) * force;
+        b.vy -= (dy / dist) * force;
+      }
+
+      // Apply velocity with damping
+      for (const node of nodes) {
+        node.vx *= 0.85;
+        node.vy *= 0.85;
+        node.x += node.vx;
+        node.y += node.vy;
+      }
     };
 
-    animationRef.current = requestAnimationFrame(simulate);
-    return () => cancelAnimationFrame(animationRef.current);
-  }, [graphEdges]);
+    const tick = () => {
+      simulate();
+      animRef.current = requestAnimationFrame(tick);
+    };
+    animRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      running = false;
+      cancelAnimationFrame(animRef.current);
+    };
+  }, [loading]);
 
   // Canvas rendering
   useEffect(() => {
@@ -200,207 +204,216 @@ function GraphContent() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
+    let frameId = 0;
 
-    ctx.clearRect(0, 0, rect.width, rect.height);
+    const render = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      ctx.scale(dpr, dpr);
 
-    // Draw edges
-    graphEdges.forEach((edge) => {
-      const source = graphNodes.find((n) => n.id === edge.source);
-      const target = graphNodes.find((n) => n.id === edge.target);
-      if (!source || !target) return;
+      ctx.clearRect(0, 0, w, h);
+      ctx.save();
+      ctx.translate(panRef.current.x, panRef.current.y);
+      ctx.scale(zoomRef.current, zoomRef.current);
 
-      const opacity = 0.15 + edge.score * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(source.x, source.y);
-      ctx.lineTo(target.x, target.y);
-      ctx.strokeStyle = `rgba(122, 92, 255, ${opacity})`;
-      ctx.lineWidth = 1 + edge.score * 2;
-      ctx.stroke();
-    });
+      const nodes = nodesRef.current;
+      const edges = edgesRef.current;
 
-    // Draw nodes
-    graphNodes.forEach((node) => {
-      const isHovered = hoveredNode === node.id;
-
-      // Glow
-      if (node.isCenter || isHovered) {
-        const gradient = ctx.createRadialGradient(node.x, node.y, node.radius, node.x, node.y, node.radius * 2.5);
-        gradient.addColorStop(0, node.isCenter ? "rgba(122, 92, 255, 0.3)" : "rgba(167, 139, 250, 0.2)");
-        gradient.addColorStop(1, "rgba(122, 92, 255, 0)");
+      // Draw edges
+      for (const edge of edges) {
+        const a = nodes.find((n) => n.id === edge.source);
+        const b = nodes.find((n) => n.id === edge.target);
+        if (!a || !b) continue;
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius * 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = gradient;
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = `rgba(122,92,255,${0.1 + edge.score * 0.3})`;
+        ctx.lineWidth = 0.5 + edge.score;
+        ctx.stroke();
+      }
+
+      // Draw nodes
+      for (const node of nodes) {
+        const isHovered = hoveredNode === node.id;
+        const isSelected = selectedNode?.id === node.id;
+        const r = node.radius * (isHovered || isSelected ? 1.4 : 1);
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        const color = node.section ? getSectionColor(node.section) : "#7A5CFF";
+        ctx.fillStyle = isSelected ? "#fff" : color;
         ctx.fill();
+
+        if (isHovered || isSelected) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        // Label
+        if (isHovered || isSelected || zoomRef.current > 0.7) {
+          ctx.font = `${isHovered || isSelected ? "bold " : ""}11px Inter, sans-serif`;
+          ctx.fillStyle = isHovered || isSelected ? "#fff" : "rgba(255,255,255,0.6)";
+          ctx.textAlign = "center";
+          const label = node.title.length > 25 ? node.title.slice(0, 22) + "..." : node.title;
+          ctx.fillText(label, node.x, node.y + r + 14);
+        }
       }
 
-      // Node circle
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-      if (node.isCenter) {
-        const gradient = ctx.createLinearGradient(node.x - node.radius, node.y, node.x + node.radius, node.y);
-        gradient.addColorStop(0, "#5A3BDF");
-        gradient.addColorStop(1, "#A06BFF");
-        ctx.fillStyle = gradient;
-      } else {
-        ctx.fillStyle = isHovered ? "rgba(122, 92, 255, 0.8)" : "rgba(122, 92, 255, 0.4)";
+      ctx.restore();
+
+      // Legend
+      const sections = [...new Set(nodes.map((n) => n.section).filter(Boolean))];
+      ctx.font = "11px Inter, sans-serif";
+      let ly = 20;
+      for (const sec of sections.slice(0, 8)) {
+        if (!sec) continue;
+        ctx.fillStyle = getSectionColor(sec);
+        ctx.beginPath();
+        ctx.arc(w - 120, ly, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.6)";
+        ctx.textAlign = "left";
+        const secLabel = sec.length > 12 ? sec.slice(0, 10) + ".." : sec;
+        ctx.fillText(secLabel, w - 110, ly + 4);
+        ly += 18;
       }
-      ctx.fill();
-      ctx.strokeStyle = isHovered ? "#a78bfa" : "rgba(167, 139, 250, 0.3)";
-      ctx.lineWidth = isHovered ? 2 : 1;
-      ctx.stroke();
 
-      // Label
-      ctx.font = node.isCenter ? "bold 13px Inter, sans-serif" : "11px Inter, sans-serif";
-      ctx.fillStyle = isHovered || node.isCenter ? "#e8e6f0" : "rgba(232, 230, 240, 0.7)";
-      ctx.textAlign = "center";
-      const label = node.title.length > 22 ? node.title.slice(0, 20) + "…" : node.title;
-      ctx.fillText(label, node.x, node.y + node.radius + 16);
+      frameId = requestAnimationFrame(render);
+    };
 
-      if (node.score && !node.isCenter) {
-        ctx.font = "9px Inter, sans-serif";
-        ctx.fillStyle = "rgba(167, 139, 250, 0.5)";
-        ctx.fillText(`${Math.round(node.score * 100)}%`, node.x, node.y + node.radius + 28);
-      }
-    });
-  }, [graphNodes, hoveredNode]);
+    frameId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(frameId);
+  }, [loading, hoveredNode, selectedNode]);
 
-  // Mouse interaction
-  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Mouse handlers for pan/zoom/hover/click
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
 
-    const found = graphNodes.find((n) => {
-      const dx = n.x - x;
-      const dy = n.y - y;
-      return Math.sqrt(dx * dx + dy * dy) < n.radius + 5;
-    });
-    setHoveredNode(found?.id || null);
-    canvas.style.cursor = found ? "pointer" : "default";
-  };
-
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const clicked = graphNodes.find((n) => {
-      const dx = n.x - x;
-      const dy = n.y - y;
-      return Math.sqrt(dx * dx + dy * dy) < n.radius + 5;
+    const screenToWorld = (sx: number, sy: number) => ({
+      x: (sx - panRef.current.x) / zoomRef.current,
+      y: (sy - panRef.current.y) / zoomRef.current,
     });
 
-    if (clicked) {
-      if (clicked.isCenter) {
-        router.push(`/notes/${clicked.id}`);
+    const findNode = (sx: number, sy: number) => {
+      const { x, y } = screenToWorld(sx, sy);
+      return nodesRef.current.find(
+        (n) => Math.hypot(x - n.x, y - n.y) < n.radius * 1.5
+      );
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const newZoom = Math.max(0.2, Math.min(3, zoomRef.current * factor));
+
+      panRef.current.x = mx - (mx - panRef.current.x) * (newZoom / zoomRef.current);
+      panRef.current.y = my - (my - panRef.current.y) * (newZoom / zoomRef.current);
+      zoomRef.current = newZoom;
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const node = findNode(mx, my);
+      if (node) {
+        setSelectedNode(node);
       } else {
-        loadGraph(clicked.id);
+        draggingRef.current = true;
+        lastMouseRef.current = { x: e.clientX, y: e.clientY };
       }
-    }
-  };
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      if (draggingRef.current) {
+        panRef.current.x += e.clientX - lastMouseRef.current.x;
+        panRef.current.y += e.clientY - lastMouseRef.current.y;
+        lastMouseRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
+
+      const node = findNode(mx, my);
+      setHoveredNode(node?.id || null);
+      canvas.style.cursor = node ? "pointer" : "grab";
+    };
+
+    const handleMouseUp = () => {
+      draggingRef.current = false;
+    };
+
+    const handleDblClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const node = findNode(e.clientX - rect.left, e.clientY - rect.top);
+      if (node) {
+        router.push(`/notes/${node.id}`);
+      }
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    canvas.addEventListener("mousedown", handleMouseDown);
+    canvas.addEventListener("mousemove", handleMouseMove);
+    canvas.addEventListener("mouseup", handleMouseUp);
+    canvas.addEventListener("dblclick", handleDblClick);
+
+    return () => {
+      canvas.removeEventListener("wheel", handleWheel);
+      canvas.removeEventListener("mousedown", handleMouseDown);
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      canvas.removeEventListener("mouseup", handleMouseUp);
+      canvas.removeEventListener("dblclick", handleDblClick);
+    };
+  }, [router]);
 
   return (
-    <div className="max-w-6xl">
-      <h2 className="text-2xl font-display font-bold mb-4">Note Graph</h2>
-      <p className="mb-6 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        Explore connections between your notes. Select a note to see related content.
-      </p>
-
-      {/* Note selector */}
-      <div className="flex gap-3 mb-6">
-        <select
-          value={selectedNote || ""}
-          onChange={(e) => e.target.value && loadGraph(e.target.value)}
-          className="flex-1 px-4 py-2.5 rounded-xl text-sm focus:outline-none focus:ring-2"
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid var(--card-border)',
-            color: 'var(--foreground)',
-          }}
-        >
-          <option value="" style={{ background: '#13112e' }}>Select a note to explore...</option>
-          {notes.map((n) => (
-            <option key={n.id} value={n.id} style={{ background: '#13112e' }}>{n.title}</option>
-          ))}
-        </select>
+    <div className="flex flex-col h-[calc(100vh-3rem)]">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-2xl font-display font-bold">Knowledge Graph</h2>
+        <div className="flex items-center gap-3">
+          {selectedNode && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                {selectedNode.title}
+              </span>
+              <button
+                onClick={() => router.push(`/notes/${selectedNode.id}`)}
+                className="text-xs px-3 py-1 rounded-lg font-medium"
+                style={{ background: "var(--accent)", color: "#fff" }}
+              >
+                Open
+              </button>
+            </div>
+          )}
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Scroll to zoom · Drag to pan · Click to select · Double-click to open
+          </span>
+        </div>
       </div>
 
-      {/* Graph canvas */}
-      <div
-        className="relative rounded-xl overflow-hidden"
-        style={{
-          background: 'radial-gradient(circle at center, rgba(122,92,255,0.03) 0%, transparent 70%)',
-          border: '1px solid var(--card-border)',
-          height: 600,
-        }}
-      >
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center z-10" style={{ background: 'rgba(13,11,36,0.8)' }}>
-            <div className="flex items-center gap-3" style={{ color: 'var(--accent)' }}>
-              <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="10" strokeOpacity={0.25} />
-                <path d="M12 2a10 10 0 019.8 8" strokeLinecap="round" />
-              </svg>
-              Loading connections...
+      <div className="flex-1 rounded-xl overflow-hidden relative" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin w-8 h-8 mx-auto mb-3" style={{ border: "2px solid var(--card-border)", borderTopColor: "var(--accent)", borderRadius: "50%" }} />
+              <p style={{ color: "var(--text-muted)" }}>Building knowledge graph...</p>
             </div>
           </div>
+        ) : (
+          <canvas ref={canvasRef} className="w-full h-full" style={{ cursor: "grab" }} />
         )}
-
-        {graphNodes.length === 0 && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: 'var(--text-muted)' }}>
-            <svg className="w-16 h-16 mb-4 opacity-30" viewBox="0 0 20 20" fill="none" strokeWidth={0.8} stroke="currentColor">
-              <circle cx="10" cy="10" r="2.5" />
-              <circle cx="4" cy="5" r="1.5" />
-              <circle cx="16" cy="5" r="1.5" />
-              <circle cx="5" cy="16" r="1.5" />
-              <circle cx="16" cy="14" r="1.5" />
-              <path d="M8 8.5L5.5 6M12 8.5l2.5-2.5M8.5 12l-2 2.5M12.5 11l2 2" strokeLinecap="round" />
-            </svg>
-            <p className="text-sm">Select a note above to explore its connections</p>
-          </div>
-        )}
-
-        {graphNodes.length === 1 && graphEdges.length === 0 && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ color: 'var(--text-muted)' }}>
-            <p className="text-sm">No related notes found for this note.</p>
-            <p className="text-xs mt-1 opacity-60">Notes need embeddings to find connections. Try adding more notes.</p>
-          </div>
-        )}
-
-        <canvas
-          ref={canvasRef}
-          style={{ width: "100%", height: "100%" }}
-          onMouseMove={handleCanvasMouseMove}
-          onClick={handleCanvasClick}
-        />
       </div>
-
-      {/* Legend */}
-      {graphNodes.length > 0 && (
-        <div className="flex items-center gap-6 mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ background: 'linear-gradient(to right, #5A3BDF, #A06BFF)' }} />
-            <span>Selected note</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ background: 'rgba(122,92,255,0.4)' }} />
-            <span>Related note (click to explore)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-0.5" style={{ background: 'rgba(122,92,255,0.4)' }} />
-            <span>Similarity (thicker = stronger)</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

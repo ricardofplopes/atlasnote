@@ -63,6 +63,7 @@ class NoteCreate(BaseModel):
     content: str = ""
     tags: list[str] = []
     is_pinned: bool = False
+    source_url: str | None = None
 
 
 class NoteUpdate(BaseModel):
@@ -70,6 +71,7 @@ class NoteUpdate(BaseModel):
     content: str | None = None
     tags: list[str] | None = None
     is_pinned: bool | None = None
+    source_url: str | None = None
 
 
 class NoteMoveRequest(BaseModel):
@@ -84,6 +86,7 @@ class NoteResponse(BaseModel):
     tags: list[str]
     is_pinned: bool
     is_deleted: bool
+    source_url: str | None = None
     deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -109,6 +112,7 @@ class SearchRequest(BaseModel):
     section_slug: str | None = None
     tags: list[str] | None = None
     limit: int = Field(10, ge=1, le=50)
+    mode: str = Field("hybrid", pattern="^(hybrid|semantic|keyword)$")
 
 
 class ChunkResult(BaseModel):
@@ -161,3 +165,34 @@ class ImportPlanResponse(BaseModel):
 
 class ImportConfirmRequest(BaseModel):
     files: list[ImportFilePreview]
+
+
+# ── Wiki ──
+
+class WikiGenerateRequest(BaseModel):
+    section_slug: str = Field(..., min_length=1)
+    topic: str | None = None
+
+
+class WikiCitationResponse(BaseModel):
+    index: int
+    note_id: uuid.UUID
+    note_title: str
+    chunk_text: str
+
+
+class WikiResponse(BaseModel):
+    article: str
+    citations: list[WikiCitationResponse]
+    section_name: str
+
+
+# ── Settings ──
+
+class SettingItem(BaseModel):
+    key: str
+    value: str | None = None
+
+
+class SettingsResponse(BaseModel):
+    settings: dict[str, str | None]
