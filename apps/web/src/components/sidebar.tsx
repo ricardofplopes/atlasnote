@@ -49,8 +49,8 @@ export function Sidebar() {
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col h-full">
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center gap-2.5">
-          <img src="/icon.png" alt="" className="w-7 h-7 object-contain" />
-          <h1 className="text-lg font-bold text-indigo-600 tracking-tight">Atlas Note</h1>
+          <img src="/logo-transparent.svg" alt="" className="w-7 h-7" />
+          <h1 className="font-display text-lg font-bold text-indigo-600 tracking-tight">Atlas Note</h1>
         </div>
       </div>
 

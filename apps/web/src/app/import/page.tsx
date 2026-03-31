@@ -50,7 +50,7 @@ function ImportContent() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-bold mb-6">📥 Import Notes</h2>
+      <h2 className="text-2xl font-display font-bold mb-6">📥 Import Notes</h2>
       <p className="text-gray-500 mb-4">
         Upload .txt files and the LLM will suggest sections and sub-sections for each.
       </p>

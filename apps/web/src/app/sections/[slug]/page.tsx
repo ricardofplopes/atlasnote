@@ -96,7 +96,7 @@ function SectionContent() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-bold">{section.name}</h2>
+          <h2 className="text-2xl font-display font-bold">{section.name}</h2>
           {section.description && (
             <p className="text-gray-500 mt-1">{section.description}</p>
           )}

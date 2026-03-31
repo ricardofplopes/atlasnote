@@ -56,7 +56,7 @@ function RecentNotes() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-bold mb-6">Recent Notes</h2>
+      <h2 className="text-2xl font-display font-bold mb-6">Recent Notes</h2>
       {notes.length === 0 ? (
         <p className="text-gray-500">No notes yet. Create one from a section!</p>
       ) : (

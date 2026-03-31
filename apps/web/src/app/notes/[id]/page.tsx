@@ -150,7 +150,7 @@ function NoteContent() {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-2xl font-bold px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full text-2xl font-display font-bold px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <textarea
             value={content}
@@ -173,7 +173,7 @@ function NoteContent() {
         </div>
       ) : (
         <div>
-          <h1 className="text-2xl font-bold mb-2">{note.title}</h1>
+          <h1 className="text-2xl font-display font-bold mb-2">{note.title}</h1>
           <div className="flex gap-2 mb-4">
             {note.tags?.map((tag) => (
               <span key={tag} className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full">

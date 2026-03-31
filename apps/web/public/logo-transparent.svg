@@ -1,0 +1,32 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="leftGrad" x1="332" y1="662" x2="588" y2="304" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5A3BDF"/>
+      <stop offset="0.52" stop-color="#7A5CFF"/>
+      <stop offset="1" stop-color="#A06BFF"/>
+    </linearGradient>
+
+    <linearGradient id="rightGrad" x1="578" y1="390" x2="761" y2="710" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F5F1FF"/>
+      <stop offset="1" stop-color="#D07BFF"/>
+    </linearGradient>
+
+    <linearGradient id="baseGrad" x1="355" y1="676" x2="644" y2="676" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6A47F2"/>
+      <stop offset="0.5" stop-color="#8C5FFF"/>
+      <stop offset="1" stop-color="#6E4CFF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Left stroke -->
+  <path d="M365 667L546 370C557 352 582 350 595 366L618 394C626 404 626 419 618 429L451 667C445 676 435 682 423 682H386C367 682 354 663 365 667Z" fill="url(#leftGrad)"/>
+
+  <!-- Right stroke -->
+  <path d="M597 433C606 418 627 417 637 431L749 620C759 635 748 654 731 654H693C683 654 673 648 667 640L574 486C568 477 568 466 574 457L597 433Z" fill="url(#rightGrad)"/>
+
+  <!-- Bottom curve -->
+  <path d="M383 682H603C617 682 630 689 638 701L653 724H356C337 724 325 704 334 687L339 678C348 664 364 656 380 656H516C544 656 571 662 596 675L603 682H383Z" fill="url(#baseGrad)"/>
+
+  <!-- Inner triangle -->
+  <path d="M511 500L548 566H474L511 500Z" fill="#F6F3FF"/>
+</svg>
