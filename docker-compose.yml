@@ -26,6 +26,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://atlasnote:atlasnote@postgres:5432/atlasnote
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -40,6 +42,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://atlasnote:atlasnote@postgres:5432/atlasnote
     env_file:
       - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy

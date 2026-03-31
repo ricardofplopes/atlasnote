@@ -89,7 +89,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
-    op.execute("ALTER TABLE note_chunks ADD COLUMN embedding vector(1536)")
+    op.execute("ALTER TABLE note_chunks ADD COLUMN embedding vector(768)")
     op.create_index("ix_note_chunks_note", "note_chunks", ["note_id"])
 
 
