@@ -50,19 +50,26 @@ function SearchContent() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSearch()}
           placeholder="Search your notes by meaning..."
-          className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg"
+          className="flex-1 px-4 py-3 rounded-xl focus:outline-none focus:ring-2 text-lg"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid var(--card-border)',
+            color: 'var(--foreground)',
+            ['--tw-ring-color' as string]: 'var(--accent)',
+          }}
         />
         <button
           onClick={handleSearch}
           disabled={loading}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          className="px-6 py-3 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 transition"
+          style={{ background: 'var(--accent)' }}
         >
           {loading ? "..." : "Search"}
         </button>
       </div>
 
       {searched && results.length === 0 && (
-        <p className="text-gray-500">No results found.</p>
+        <p style={{ color: 'var(--text-muted)' }}>No results found.</p>
       )}
 
       <div className="space-y-3">
@@ -70,15 +77,21 @@ function SearchContent() {
           <Link
             key={i}
             href={`/notes/${result.note_id}`}
-            className="block p-4 bg-white rounded-lg border hover:border-indigo-300 hover:shadow-sm transition"
+            className="block p-4 rounded-xl transition-all duration-150 hover:scale-[1.01]"
+            style={{
+              background: 'var(--card-bg)',
+              border: '1px solid var(--card-border)',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--card-border)'}
           >
             <div className="flex items-center justify-between mb-1">
-              <h3 className="font-medium">{result.note_title}</h3>
-              <span className="text-xs text-gray-400">
+              <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>{result.note_title}</h3>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {result.section_name} · {(result.score * 100).toFixed(0)}% match
               </span>
             </div>
-            <p className="text-sm text-gray-600">{result.chunk_text}</p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{result.chunk_text}</p>
           </Link>
         ))}
       </div>

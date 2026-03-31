@@ -51,20 +51,24 @@ function ImportContent() {
   return (
     <div className="max-w-4xl">
       <h2 className="text-2xl font-display font-bold mb-6">📥 Import Notes</h2>
-      <p className="text-gray-500 mb-4">
+      <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
         Upload .txt files and the LLM will suggest sections and sub-sections for each.
       </p>
 
-      <div className="mb-6 p-6 border-2 border-dashed border-gray-300 rounded-lg text-center">
+      <div
+        className="mb-6 p-6 border-2 border-dashed rounded-xl text-center"
+        style={{ borderColor: 'var(--card-border)' }}
+      >
         <input
           type="file"
           multiple
           accept=".txt"
           onChange={handleFileSelect}
           className="mb-3"
+          style={{ color: 'var(--text-secondary)' }}
         />
         {files.length > 0 && (
-          <p className="text-sm text-gray-500">{files.length} file(s) selected</p>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>{files.length} file(s) selected</p>
         )}
       </div>
 
@@ -72,7 +76,8 @@ function ImportContent() {
         <button
           onClick={handleUpload}
           disabled={loading}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          className="px-6 py-3 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 transition"
+          style={{ background: 'var(--accent)' }}
         >
           {loading ? "Analyzing..." : "Analyze & Preview"}
         </button>
@@ -82,35 +87,40 @@ function ImportContent() {
         <div className="space-y-4 mt-6">
           <h3 className="text-lg font-semibold">Import Preview</h3>
           {previews.map((p, i) => (
-            <div key={i} className="p-4 bg-white rounded-lg border">
+            <div
+              key={i}
+              className="p-4 rounded-xl"
+              style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+            >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="font-medium">{p.suggested_title}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-semibold" style={{ color: 'var(--foreground)' }}>{p.suggested_title}</p>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                     📁 {p.suggested_section}
                     {p.suggested_subsection && ` → ${p.suggested_subsection}`}
                   </p>
                 </div>
-                <span className="text-xs text-gray-400">{p.filename}</span>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{p.filename}</span>
               </div>
               <div className="flex gap-1 mt-2">
                 {p.suggested_tags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-xs px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full"
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
                   >
                     {tag}
                   </span>
                 ))}
               </div>
-              <p className="text-xs text-gray-400 mt-2 line-clamp-2">
+              <p className="text-xs mt-2 line-clamp-2" style={{ color: 'var(--text-muted)' }}>
                 {p.content_preview}
               </p>
             </div>
           ))}
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
             ✅ Review the suggestions above. To import, use the API endpoint{" "}
-            <code className="bg-gray-100 px-1 rounded">POST /api/import/confirm</code>.
+            <code className="px-1 rounded text-xs" style={{ background: 'rgba(255,255,255,0.08)', color: '#a78bfa' }}>POST /api/import/confirm</code>.
           </p>
         </div>
       )}

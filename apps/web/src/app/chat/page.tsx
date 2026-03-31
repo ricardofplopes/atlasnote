@@ -68,23 +68,24 @@ function ChatContent() {
 
       <div className="flex-1 overflow-y-auto space-y-4 mb-4">
         {messages.length === 0 && (
-          <p className="text-gray-400 text-center mt-20">
+          <p className="text-center mt-20" style={{ color: 'var(--text-muted)' }}>
             Ask a question about your notes. Answers are grounded in your actual content.
           </p>
         )}
         {messages.map((msg, i) => (
           <div
             key={i}
-            className={`p-4 rounded-lg ${
+            className="p-4 rounded-xl"
+            style={
               msg.role === "user"
-                ? "bg-indigo-50 text-indigo-900 ml-12"
-                : "bg-white border mr-12"
-            }`}
+                ? { background: 'var(--accent-soft)', color: '#c4b5fd', marginLeft: '3rem' }
+                : { background: 'var(--card-bg)', border: '1px solid var(--card-border)', marginRight: '3rem' }
+            }
           >
-            <p className="whitespace-pre-wrap">{msg.content}</p>
+            <p className="whitespace-pre-wrap" style={{ color: msg.role === "user" ? '#e0d7ff' : 'var(--foreground)' }}>{msg.content}</p>
             {msg.citations && msg.citations.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <p className="text-xs font-semibold text-gray-400 mb-2">
+              <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--card-border)' }}>
+                <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-muted)' }}>
                   Sources:
                 </p>
                 <div className="space-y-1">
@@ -95,7 +96,8 @@ function ChatContent() {
                       <Link
                         key={j}
                         href={`/notes/${c.note_id}`}
-                        className="block text-xs text-indigo-600 hover:underline"
+                        className="block text-xs hover:underline"
+                        style={{ color: 'var(--accent)' }}
                       >
                         📄 {c.note_title} ({(c.score * 100).toFixed(0)}%)
                       </Link>
@@ -106,8 +108,8 @@ function ChatContent() {
           </div>
         ))}
         {loading && (
-          <div className="p-4 bg-white border rounded-lg mr-12">
-            <div className="animate-pulse text-gray-400">Thinking...</div>
+          <div className="p-4 rounded-xl mr-12" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}>
+            <div className="animate-pulse" style={{ color: 'var(--text-muted)' }}>Thinking...</div>
           </div>
         )}
       </div>
@@ -118,13 +120,20 @@ function ChatContent() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Ask about your notes..."
-          className="flex-1 px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="flex-1 px-4 py-3 rounded-xl focus:outline-none focus:ring-2"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid var(--card-border)',
+            color: 'var(--foreground)',
+            ['--tw-ring-color' as string]: 'var(--accent)',
+          }}
           disabled={loading}
         />
         <button
           onClick={handleSend}
           disabled={loading}
-          className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          className="px-6 py-3 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 transition"
+          style={{ background: 'var(--accent)' }}
         >
           Send
         </button>

@@ -90,7 +90,7 @@ function SectionContent() {
     router.push("/");
   };
 
-  if (!section) return <div className="text-gray-500">Loading...</div>;
+  if (!section) return <div style={{ color: 'var(--text-muted)' }}>Loading...</div>;
 
   return (
     <div className="max-w-4xl">
@@ -98,25 +98,30 @@ function SectionContent() {
         <div>
           <h2 className="text-2xl font-display font-bold">{section.name}</h2>
           {section.description && (
-            <p className="text-gray-500 mt-1">{section.description}</p>
+            <p className="mt-1" style={{ color: 'var(--text-secondary)' }}>{section.description}</p>
           )}
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowNewNote(!showNewNote)}
-            className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700"
+            className="px-3 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition"
+            style={{ background: 'var(--accent)' }}
           >
             + Note
           </button>
           <button
             onClick={() => setShowNewSub(!showNewSub)}
-            className="px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300"
+            className="px-3 py-1.5 text-sm font-semibold rounded-lg transition"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              color: 'var(--text-secondary)',
+            }}
           >
             + Sub-section
           </button>
           <button
             onClick={handleDelete}
-            className="px-3 py-1.5 text-red-500 text-sm rounded-lg hover:bg-red-50"
+            className="px-3 py-1.5 text-sm font-medium rounded-lg transition text-red-400 hover:bg-red-400/10"
           >
             Delete
           </button>
@@ -126,7 +131,10 @@ function SectionContent() {
       {/* Sub-sections */}
       {section.children && section.children.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase mb-2">
+          <h3
+            className="text-sm font-bold uppercase mb-2 tracking-wider"
+            style={{ color: 'var(--text-muted)' }}
+          >
             Sub-sections
           </h3>
           <div className="flex flex-wrap gap-2">
@@ -134,7 +142,8 @@ function SectionContent() {
               <Link
                 key={child.id}
                 href={`/sections/${child.slug}`}
-                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm hover:bg-indigo-100"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium transition"
+                style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
               >
                 {child.name}
               </Link>
@@ -144,18 +153,28 @@ function SectionContent() {
       )}
 
       {showNewSub && (
-        <div className="mb-4 p-4 bg-white rounded-lg border flex gap-2">
+        <div
+          className="mb-4 p-4 rounded-xl flex gap-2"
+          style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+        >
           <input
             value={newSubName}
             onChange={(e) => setNewSubName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleCreateSub()}
             placeholder="Sub-section name"
-            className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="flex-1 px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid var(--card-border)',
+              color: 'var(--foreground)',
+              ['--tw-ring-color' as string]: 'var(--accent)',
+            }}
             autoFocus
           />
           <button
             onClick={handleCreateSub}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            className="px-4 py-2 text-white rounded-lg font-semibold hover:opacity-90 transition"
+            style={{ background: 'var(--accent)' }}
           >
             Create
           </button>
@@ -163,12 +182,21 @@ function SectionContent() {
       )}
 
       {showNewNote && (
-        <div className="mb-4 p-4 bg-white rounded-lg border space-y-3">
+        <div
+          className="mb-4 p-4 rounded-xl space-y-3"
+          style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+        >
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             placeholder="Note title"
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid var(--card-border)',
+              color: 'var(--foreground)',
+              ['--tw-ring-color' as string]: 'var(--accent)',
+            }}
             autoFocus
           />
           <textarea
@@ -176,17 +204,30 @@ function SectionContent() {
             onChange={(e) => setNewContent(e.target.value)}
             placeholder="Note content (markdown)"
             rows={6}
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
+            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 font-mono text-sm"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid var(--card-border)',
+              color: 'var(--foreground)',
+              ['--tw-ring-color' as string]: 'var(--accent)',
+            }}
           />
           <input
             value={newTags}
             onChange={(e) => setNewTags(e.target.value)}
             placeholder="Tags (comma separated)"
-            className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid var(--card-border)',
+              color: 'var(--foreground)',
+              ['--tw-ring-color' as string]: 'var(--accent)',
+            }}
           />
           <button
             onClick={handleCreateNote}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+            className="px-4 py-2 text-white rounded-lg font-semibold hover:opacity-90 transition"
+            style={{ background: 'var(--accent)' }}
           >
             Create Note
           </button>
@@ -196,31 +237,38 @@ function SectionContent() {
       {/* Notes list */}
       <div className="space-y-3">
         {notes.length === 0 ? (
-          <p className="text-gray-500">No notes in this section yet.</p>
+          <p style={{ color: 'var(--text-muted)' }}>No notes in this section yet.</p>
         ) : (
           notes.map((note) => (
             <Link
               key={note.id}
               href={`/notes/${note.id}`}
-              className="block p-4 bg-white rounded-lg border border-gray-200 hover:border-indigo-300 hover:shadow-sm transition"
+              className="block p-4 rounded-xl transition-all duration-150 hover:scale-[1.01]"
+              style={{
+                background: 'var(--card-bg)',
+                border: '1px solid var(--card-border)',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--card-border)'}
             >
               <div className="flex items-center gap-2">
                 {note.is_pinned && <span>📌</span>}
-                <h3 className="font-medium">{note.title}</h3>
+                <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>{note.title}</h3>
               </div>
-              <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+              <p className="text-sm mt-1 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
                 {note.content.slice(0, 200)}
               </p>
               <div className="flex gap-2 mt-2">
                 {note.tags?.map((tag) => (
                   <span
                     key={tag}
-                    className="text-xs px-2 py-0.5 bg-gray-100 rounded-full text-gray-600"
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
                   >
                     {tag}
                   </span>
                 ))}
-                <span className="ml-auto text-xs text-gray-400">
+                <span className="ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
                   {new Date(note.updated_at).toLocaleDateString()}
                 </span>
               </div>

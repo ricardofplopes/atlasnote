@@ -43,7 +43,7 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${satoshi.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-gray-50 text-gray-900 font-sans">
+      <body className="min-h-full flex flex-col font-sans" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
         <Providers>{children}</Providers>
       </body>
     </html>
