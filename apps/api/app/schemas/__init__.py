@@ -157,6 +157,8 @@ class ImportFilePreview(BaseModel):
     suggested_title: str
     suggested_tags: list[str]
     content_preview: str
+    content_full: str | None = None  # Full content for split entries
+    split_from: str | None = None  # Original filename if this was split
 
 
 class ImportPlanResponse(BaseModel):

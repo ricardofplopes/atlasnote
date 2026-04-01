@@ -13,6 +13,8 @@ interface FilePreview {
   suggested_title: string;
   suggested_tags: string[];
   content_preview: string;
+  content_full: string | null;
+  split_from: string | null;
 }
 
 export default function ImportPage() {
@@ -112,10 +114,21 @@ function ImportContent() {
 
         const data = await res.json();
         if (data.files && data.files.length > 0) {
-          const preview = data.files[0];
-          allPreviews.push(preview);
-          addLog(`   ✓ Suggested: "${preview.suggested_title}" → ${preview.suggested_section}${preview.suggested_subsection ? ` / ${preview.suggested_subsection}` : ""}`);
-          addLog(`   ✓ Tags: ${preview.suggested_tags.join(", ") || "(none)"}`);
+          const splitFrom = data.files[0].split_from;
+          if (splitFrom && data.files.length > 1) {
+            // File was split into multiple entries by date
+            addLog(`   ✓ Detected ${data.files.length} date entries — splitting into separate notes`);
+            for (const preview of data.files) {
+              allPreviews.push(preview);
+              addLog(`     → "${preview.suggested_title}"`);
+            }
+            addLog(`   ✓ Section: ${data.files[0].suggested_section}${data.files[0].suggested_subsection ? ` / ${data.files[0].suggested_subsection}` : ""}`);
+          } else {
+            const preview = data.files[0];
+            allPreviews.push(preview);
+            addLog(`   ✓ Suggested: "${preview.suggested_title}" → ${preview.suggested_section}${preview.suggested_subsection ? ` / ${preview.suggested_subsection}` : ""}`);
+            addLog(`   ✓ Tags: ${preview.suggested_tags.join(", ") || "(none)"}`);
+          }
         }
       } catch (e) {
         addLog(`   ✗ Failed to analyze "${file.name}": ${e}`);
@@ -238,38 +251,74 @@ function ImportContent() {
       {previews.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Import Preview</h3>
-          {previews.map((p, i) => (
-            <div
-              key={i}
-              className="p-4 rounded-xl"
-              style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-semibold" style={{ color: 'var(--foreground)' }}>{p.suggested_title}</p>
-                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                    {p.suggested_section}
-                    {p.suggested_subsection && ` → ${p.suggested_subsection}`}
-                  </p>
+          {(() => {
+            // Group previews by split_from for visual grouping
+            const groups: { source: string | null; items: FilePreview[] }[] = [];
+            let currentGroup: typeof groups[0] | null = null;
+
+            for (const p of previews) {
+              if (p.split_from) {
+                if (!currentGroup || currentGroup.source !== p.split_from) {
+                  currentGroup = { source: p.split_from, items: [p] };
+                  groups.push(currentGroup);
+                } else {
+                  currentGroup.items.push(p);
+                }
+              } else {
+                groups.push({ source: null, items: [p] });
+                currentGroup = null;
+              }
+            }
+
+            return groups.map((group, gi) => (
+              <div key={gi}>
+                {group.source && (
+                  <div className="flex items-center gap-2 mb-2 mt-4">
+                    <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{group.source}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80" }}>
+                      Split into {group.items.length} notes
+                    </span>
+                  </div>
+                )}
+                <div className={group.source ? "space-y-2 pl-3" : "space-y-2"} style={group.source ? { borderLeft: "2px solid rgba(122,92,255,0.3)" } : {}}>
+                  {group.items.map((p, i) => (
+                    <div
+                      key={i}
+                      className="p-4 rounded-xl"
+                      style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-semibold" style={{ color: "var(--foreground)" }}>{p.suggested_title}</p>
+                          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                            {p.suggested_section}
+                            {p.suggested_subsection && ` → ${p.suggested_subsection}`}
+                          </p>
+                        </div>
+                        {!group.source && (
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{p.filename}</span>
+                        )}
+                      </div>
+                      <div className="flex gap-1 mt-2">
+                        {p.suggested_tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-xs px-2 py-0.5 rounded-full"
+                            style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs mt-2 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                        {p.content_preview}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{p.filename}</span>
               </div>
-              <div className="flex gap-1 mt-2">
-                {p.suggested_tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-              <p className="text-xs mt-2 line-clamp-2" style={{ color: 'var(--text-muted)' }}>
-                {p.content_preview}
-              </p>
-            </div>
-          ))}
+            ));
+          })()}
 
           {!imported ? (
             <button

@@ -1,4 +1,6 @@
 import json
+import re
+from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -11,6 +13,12 @@ from app.routers.auth import get_current_user
 from app.routers.sections import slugify
 
 router = APIRouter()
+
+# Regex for date headers: DD-MM-YYYY followed by dashes
+DATE_HEADER_RE = re.compile(
+    r"(?:^|\n)\s*(\d{2}-\d{2}-\d{4})\s*-{5,}",
+    re.MULTILINE,
+)
 
 CATEGORIZE_PROMPT = """You are a note organizer. Given a filename and content, suggest how to categorize this note.
 
@@ -44,13 +52,59 @@ Content (first 2000 chars):
 Respond ONLY with valid JSON, no extra text."""
 
 
+def split_by_dates(content: str) -> list[tuple[str, str]]:
+    """Split content by date headers. Returns list of (date_str, content) tuples.
+    
+    Date format: DD-MM-YYYY followed by 5+ dashes.
+    Returns empty list if fewer than 2 dates are found (no splitting needed).
+    """
+    matches = list(DATE_HEADER_RE.finditer(content))
+    if len(matches) < 2:
+        return []  # No splitting needed
+    
+    entries = []
+    for i, match in enumerate(matches):
+        date_str = match.group(1)
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        entry_content = content[start:end].strip()
+        
+        # Strip trailing dashes/separators
+        entry_content = re.sub(r"\n\s*-{10,}\s*$", "", entry_content).strip()
+        
+        if entry_content:
+            entries.append((date_str, entry_content))
+    
+    return entries
+
+
+def format_date_for_title(date_str: str) -> str:
+    """Convert DD-MM-YYYY to a readable date format."""
+    try:
+        dt = datetime.strptime(date_str, "%d-%m-%Y")
+        return dt.strftime("%d/%m/%Y")
+    except ValueError:
+        return date_str
+
+
+def make_entry_title(base_title: str, date_str: str, person_name: str | None = None) -> str:
+    """Generate a title for a split entry."""
+    formatted_date = format_date_for_title(date_str)
+    if person_name:
+        return f"1on1 {person_name} — {formatted_date}"
+    # Strip generic title suffixes and add date
+    base = re.sub(r"\s*Notes?\s*[-—]?\s*$", "", base_title).strip()
+    return f"{base} — {formatted_date}"
+
+
 @router.post("/upload", response_model=ImportPlanResponse)
 async def upload_files(
     files: list[UploadFile] = File(...),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload .txt files and get an import plan based on LLM categorization."""
+    """Upload .txt/.md files and get an import plan. Files with date-separated
+    entries (e.g. 1on1s, meeting logs) are automatically split into individual notes."""
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
@@ -64,7 +118,6 @@ async def upload_files(
     for s in top_sections:
         subs = [sub.name for sub in all_sections if sub.parent_id == s.id]
         section_map[s.name] = subs
-    existing_sections = [r[0] for r in [(s.name,) for s in top_sections]]
     sections_str = ", ".join(
         f"{name} (sub: {', '.join(subs)})" if subs else name
         for name, subs in section_map.items()
@@ -86,7 +139,6 @@ async def upload_files(
 
         try:
             response = await provider.chat([{"role": "user", "content": prompt}], temperature=0.2)
-            # Parse JSON from response
             response = response.strip()
             if response.startswith("```"):
                 response = response.split("\n", 1)[1].rsplit("```", 1)[0]
@@ -95,20 +147,47 @@ async def upload_files(
             suggestion = {
                 "section": "Imported",
                 "subsection": None,
-                "title": file.filename.replace(".txt", ""),
+                "title": file.filename.replace(".txt", "").replace(".md", ""),
                 "tags": ["imported"],
             }
 
-        previews.append(
-            ImportFilePreview(
-                filename=file.filename,
-                suggested_section=suggestion.get("section", "Imported"),
-                suggested_subsection=suggestion.get("subsection"),
-                suggested_title=suggestion.get("title", file.filename),
-                suggested_tags=suggestion.get("tags", []),
-                content_preview=content[:500],
+        # Try to split by dates
+        date_entries = split_by_dates(content)
+
+        if date_entries:
+            # Extract person name from subsection for title generation
+            person_name = suggestion.get("subsection")
+            
+            for date_str, entry_content in date_entries:
+                entry_title = make_entry_title(
+                    suggestion.get("title", file.filename),
+                    date_str,
+                    person_name,
+                )
+                previews.append(
+                    ImportFilePreview(
+                        filename=f"{file.filename}#{date_str}",
+                        suggested_section=suggestion.get("section", "Imported"),
+                        suggested_subsection=suggestion.get("subsection"),
+                        suggested_title=entry_title,
+                        suggested_tags=suggestion.get("tags", []),
+                        content_preview=entry_content[:500],
+                        content_full=entry_content,
+                        split_from=file.filename,
+                    )
+                )
+        else:
+            # Single note — no date splitting
+            previews.append(
+                ImportFilePreview(
+                    filename=file.filename,
+                    suggested_section=suggestion.get("section", "Imported"),
+                    suggested_subsection=suggestion.get("subsection"),
+                    suggested_title=suggestion.get("title", file.filename),
+                    suggested_tags=suggestion.get("tags", []),
+                    content_preview=content[:500],
+                )
             )
-        )
 
     return ImportPlanResponse(files=previews)
 
@@ -130,7 +209,11 @@ async def confirm_import(
             file_contents[file.filename] = (await file.read()).decode("utf-8", errors="replace")
 
     for item in import_data.files:
-        content = file_contents.get(item.filename, "")
+        # Use embedded content for split entries, or fall back to uploaded file
+        if item.content_full:
+            content = item.content_full
+        else:
+            content = file_contents.get(item.filename, "")
 
         # Find or create section
         section_slug = slugify(item.suggested_section)

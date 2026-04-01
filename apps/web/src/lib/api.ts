@@ -237,6 +237,8 @@ interface ImportFilePreview {
   suggested_title: string;
   suggested_tags: string[];
   content_preview: string;
+  content_full?: string | null;
+  split_from?: string | null;
 }
 
 export async function confirmImport(previews: ImportFilePreview[], files: File[]) {
