@@ -213,6 +213,7 @@ async def soft_delete_note(
     note = await _get_note(note_id, user.id, db)
     note.is_deleted = True
     note.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
 
 
 @router.post("/{note_id}/restore", response_model=NoteResponse)
