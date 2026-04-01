@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,7 +10,24 @@ import {
   createNote,
   createSection,
   deleteSection,
+  reorderNotes,
 } from "@/lib/api";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 interface Section {
   id: string;
@@ -26,7 +43,89 @@ interface Note {
   content: string;
   tags: string[];
   is_pinned: boolean;
+  position: number;
   updated_at: string;
+}
+
+function SortableNoteCard({ note }: { note: Note }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: note.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    background: "var(--card-bg)" as string,
+    border: "1px solid var(--card-border)" as string,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-xl transition-all duration-150 flex items-stretch"
+    >
+      {/* Drag handle */}
+      <button
+        {...attributes}
+        {...listeners}
+        className="flex items-center px-2 cursor-grab active:cursor-grabbing rounded-l-xl shrink-0"
+        style={{ color: "var(--text-muted)" }}
+        title="Drag to reorder"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="5" cy="3" r="1.5" />
+          <circle cx="11" cy="3" r="1.5" />
+          <circle cx="5" cy="8" r="1.5" />
+          <circle cx="11" cy="8" r="1.5" />
+          <circle cx="5" cy="13" r="1.5" />
+          <circle cx="11" cy="13" r="1.5" />
+        </svg>
+      </button>
+
+      {/* Note content (clickable link) */}
+      <Link
+        href={`/notes/${note.id}`}
+        className="block p-4 flex-1 hover:bg-white/[0.02] rounded-r-xl transition"
+      >
+        <div className="flex items-center gap-2">
+          {note.is_pinned && <span>📌</span>}
+          <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+            {note.title}
+          </h3>
+        </div>
+        <p
+          className="text-sm mt-1 line-clamp-2"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {note.content.slice(0, 200)}
+        </p>
+        <div className="flex gap-2 mt-2">
+          {note.tags?.map((tag) => (
+            <span
+              key={tag}
+              className="text-xs px-2 py-0.5 rounded-full"
+              style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
+            >
+              {tag}
+            </span>
+          ))}
+          <span
+            className="ml-auto text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {new Date(note.updated_at).toLocaleDateString()}
+          </span>
+        </div>
+      </Link>
+    </div>
+  );
 }
 
 export default function SectionPage() {
@@ -51,6 +150,13 @@ function SectionContent() {
   const [newSubName, setNewSubName] = useState("");
 
   const [error, setError] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const load = () => {
     setError(false);
@@ -97,8 +203,41 @@ function SectionContent() {
     router.push("/");
   };
 
-  if (error) return <div style={{ color: 'var(--text-muted)' }}>Failed to load section. Please try again.</div>;
-  if (!section) return <div style={{ color: 'var(--text-muted)' }}>Loading...</div>;
+  const handleDragEnd = useCallback(
+    async (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = notes.findIndex((n) => n.id === active.id);
+      const newIndex = notes.findIndex((n) => n.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      // Optimistic reorder
+      const reordered = [...notes];
+      const [moved] = reordered.splice(oldIndex, 1);
+      reordered.splice(newIndex, 0, moved);
+      setNotes(reordered);
+
+      // Persist positions
+      const items = reordered.map((n, i) => ({ id: n.id, position: i }));
+      try {
+        await reorderNotes(items);
+      } catch (err) {
+        console.error("Failed to save order:", err);
+        load(); // Revert on failure
+      }
+    },
+    [notes]
+  );
+
+  if (error)
+    return (
+      <div style={{ color: "var(--text-muted)" }}>
+        Failed to load section. Please try again.
+      </div>
+    );
+  if (!section)
+    return <div style={{ color: "var(--text-muted)" }}>Loading...</div>;
 
   return (
     <div className="max-w-4xl">
@@ -106,14 +245,16 @@ function SectionContent() {
         <div>
           <h2 className="text-2xl font-display font-bold">{section.name}</h2>
           {section.description && (
-            <p className="mt-1" style={{ color: 'var(--text-secondary)' }}>{section.description}</p>
+            <p className="mt-1" style={{ color: "var(--text-secondary)" }}>
+              {section.description}
+            </p>
           )}
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setShowNewNote(!showNewNote)}
             className="px-3 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition"
-            style={{ background: 'var(--accent)' }}
+            style={{ background: "var(--accent)" }}
           >
             + Note
           </button>
@@ -121,8 +262,8 @@ function SectionContent() {
             onClick={() => setShowNewSub(!showNewSub)}
             className="px-3 py-1.5 text-sm font-semibold rounded-lg transition"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              color: 'var(--text-secondary)',
+              background: "rgba(255,255,255,0.06)",
+              color: "var(--text-secondary)",
             }}
           >
             + Sub-section
@@ -141,7 +282,7 @@ function SectionContent() {
         <div className="mb-6">
           <h3
             className="text-sm font-bold uppercase mb-2 tracking-wider"
-            style={{ color: 'var(--text-muted)' }}
+            style={{ color: "var(--text-muted)" }}
           >
             Sub-sections
           </h3>
@@ -151,7 +292,7 @@ function SectionContent() {
                 key={child.id}
                 href={`/sections/${child.slug}`}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium transition"
-                style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
+                style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
               >
                 {child.name}
               </Link>
@@ -163,7 +304,10 @@ function SectionContent() {
       {showNewSub && (
         <div
           className="mb-4 p-4 rounded-xl flex gap-2"
-          style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+          style={{
+            background: "var(--card-bg)",
+            border: "1px solid var(--card-border)",
+          }}
         >
           <input
             value={newSubName}
@@ -172,17 +316,17 @@ function SectionContent() {
             placeholder="Sub-section name"
             className="flex-1 px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
             }}
             autoFocus
           />
           <button
             onClick={handleCreateSub}
             className="px-4 py-2 text-white rounded-lg font-semibold hover:opacity-90 transition"
-            style={{ background: 'var(--accent)' }}
+            style={{ background: "var(--accent)" }}
           >
             Create
           </button>
@@ -192,7 +336,10 @@ function SectionContent() {
       {showNewNote && (
         <div
           className="mb-4 p-4 rounded-xl space-y-3"
-          style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
+          style={{
+            background: "var(--card-bg)",
+            border: "1px solid var(--card-border)",
+          }}
         >
           <input
             value={newTitle}
@@ -200,10 +347,10 @@ function SectionContent() {
             placeholder="Note title"
             className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
             }}
             autoFocus
           />
@@ -214,10 +361,10 @@ function SectionContent() {
             rows={6}
             className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 font-mono text-sm"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
             }}
           />
           <input
@@ -226,62 +373,45 @@ function SectionContent() {
             placeholder="Tags (comma separated)"
             className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2"
             style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
             }}
           />
           <button
             onClick={handleCreateNote}
             className="px-4 py-2 text-white rounded-lg font-semibold hover:opacity-90 transition"
-            style={{ background: 'var(--accent)' }}
+            style={{ background: "var(--accent)" }}
           >
             Create Note
           </button>
         </div>
       )}
 
-      {/* Notes list */}
+      {/* Notes list with drag-and-drop */}
       <div className="space-y-3">
         {notes.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No notes in this section yet.</p>
+          <p style={{ color: "var(--text-muted)" }}>
+            No notes in this section yet.
+          </p>
         ) : (
-          notes.map((note) => (
-            <Link
-              key={note.id}
-              href={`/notes/${note.id}`}
-              className="block p-4 rounded-xl transition-all duration-150 hover:scale-[1.01]"
-              style={{
-                background: 'var(--card-bg)',
-                border: '1px solid var(--card-border)',
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--accent)'}
-              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--card-border)'}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={notes.map((n) => n.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <div className="flex items-center gap-2">
-                {note.is_pinned && <span>📌</span>}
-                <h3 className="font-semibold" style={{ color: 'var(--foreground)' }}>{note.title}</h3>
-              </div>
-              <p className="text-sm mt-1 line-clamp-2" style={{ color: 'var(--text-secondary)' }}>
-                {note.content.slice(0, 200)}
-              </p>
-              <div className="flex gap-2 mt-2">
-                {note.tags?.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}
-                  >
-                    {tag}
-                  </span>
+              <div className="space-y-3">
+                {notes.map((note) => (
+                  <SortableNoteCard key={note.id} note={note} />
                 ))}
-                <span className="ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
-                  {new Date(note.updated_at).toLocaleDateString()}
-                </span>
               </div>
-            </Link>
-          ))
+            </SortableContext>
+          </DndContext>
         )}
       </div>
     </div>

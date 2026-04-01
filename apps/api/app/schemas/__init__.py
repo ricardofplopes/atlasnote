@@ -78,6 +78,15 @@ class NoteMoveRequest(BaseModel):
     section_id: uuid.UUID
 
 
+class NoteReorderItem(BaseModel):
+    id: uuid.UUID
+    position: int
+
+
+class NoteReorderRequest(BaseModel):
+    items: list[NoteReorderItem]
+
+
 class NoteResponse(BaseModel):
     id: uuid.UUID
     section_id: uuid.UUID
@@ -87,6 +96,7 @@ class NoteResponse(BaseModel):
     is_pinned: bool
     is_deleted: bool
     source_url: str | None = None
+    position: int = 0
     deleted_at: datetime | None = None
     created_at: datetime
     updated_at: datetime

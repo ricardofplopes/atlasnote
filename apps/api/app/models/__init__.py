@@ -68,6 +68,7 @@ class Note(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     source_url = Column(String(2048), nullable=True)
+    position = Column(Integer, default=0, nullable=False)
 
     user = relationship("User", back_populates="notes")
     section = relationship("Section", back_populates="notes")

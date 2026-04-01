@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteVersion
 from app.schemas import (
-    NoteCreate, NoteUpdate, NoteMoveRequest,
+    NoteCreate, NoteUpdate, NoteMoveRequest, NoteReorderRequest,
     NoteResponse, NoteVersionResponse,
 )
 from app.routers.auth import get_current_user
@@ -102,7 +102,7 @@ async def list_notes_by_section(
             Note.section_id.in_(section_ids),
             Note.is_deleted == False,
         )
-        .order_by(Note.is_pinned.desc(), Note.updated_at.desc())
+        .order_by(Note.is_pinned.desc(), Note.position.asc(), Note.updated_at.desc())
     )
     return result.scalars().all()
 
@@ -248,6 +248,25 @@ async def toggle_pin(
     note = await _get_note(note_id, user.id, db)
     note.is_pinned = not note.is_pinned
     return note
+
+
+@router.put("/reorder", response_model=list[NoteResponse])
+async def reorder_notes(
+    data: NoteReorderRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk update note positions within a section."""
+    updated = []
+    for item in data.items:
+        result = await db.execute(
+            select(Note).where(Note.id == item.id, Note.user_id == user.id)
+        )
+        note = result.scalar_one_or_none()
+        if note:
+            note.position = item.position
+            updated.append(note)
+    return updated
 
 
 # ── Versions ──

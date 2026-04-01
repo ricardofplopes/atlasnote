@@ -53,7 +53,8 @@ Respond ONLY with valid JSON, no extra text."""
 
 
 def split_by_dates(content: str) -> list[tuple[str, str]]:
-    """Split content by date headers. Returns list of (date_str, content) tuples.
+    """Split content by date headers. Returns list of (date_str, content) tuples,
+    sorted latest-date-first.
     
     Date format: DD-MM-YYYY followed by 5+ dashes.
     Returns empty list if fewer than 2 dates are found (no splitting needed).
@@ -75,6 +76,14 @@ def split_by_dates(content: str) -> list[tuple[str, str]]:
         if entry_content:
             entries.append((date_str, entry_content))
     
+    # Sort by date descending (latest first)
+    def parse_date(entry: tuple[str, str]) -> datetime:
+        try:
+            return datetime.strptime(entry[0], "%d-%m-%Y")
+        except ValueError:
+            return datetime.min
+    
+    entries.sort(key=parse_date, reverse=True)
     return entries
 
 

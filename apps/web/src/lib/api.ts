@@ -131,6 +131,13 @@ export async function togglePin(id: string) {
   return apiFetch(`/api/notes/${id}/pin`, { method: "PATCH" });
 }
 
+export async function reorderNotes(items: { id: string; position: number }[]) {
+  return apiFetch("/api/notes/reorder", {
+    method: "PUT",
+    body: JSON.stringify({ items }),
+  });
+}
+
 export async function listRecentNotes(limit = 20) {
   return apiFetch(`/api/notes/recent?limit=${limit}`);
 }
