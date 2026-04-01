@@ -139,6 +139,26 @@ async def create_note(
     return note
 
 
+@router.put("/reorder", response_model=list[NoteResponse])
+async def reorder_notes(
+    data: NoteReorderRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk update note positions within a section."""
+    updated = []
+    for item in data.items:
+        result = await db.execute(
+            select(Note).where(Note.id == item.id, Note.user_id == user.id)
+        )
+        note = result.scalar_one_or_none()
+        if note:
+            note.position = item.position
+            updated.append(note)
+    await db.flush()
+    return updated
+
+
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: uuid.UUID,
@@ -248,25 +268,6 @@ async def toggle_pin(
     note = await _get_note(note_id, user.id, db)
     note.is_pinned = not note.is_pinned
     return note
-
-
-@router.put("/reorder", response_model=list[NoteResponse])
-async def reorder_notes(
-    data: NoteReorderRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Bulk update note positions within a section."""
-    updated = []
-    for item in data.items:
-        result = await db.execute(
-            select(Note).where(Note.id == item.id, Note.user_id == user.id)
-        )
-        note = result.scalar_one_or_none()
-        if note:
-            note.position = item.position
-            updated.append(note)
-    return updated
 
 
 # ── Versions ──
