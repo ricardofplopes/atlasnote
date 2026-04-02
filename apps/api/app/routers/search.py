@@ -5,7 +5,7 @@ from sqlalchemy import select, text, func
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import SearchRequest, SearchResponse, ChunkResult
-from app.services.llm import get_llm_provider
+from app.services.llm import get_embedding_provider
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -48,7 +48,7 @@ async def _semantic_search(
     query: str, user_id, filters: list, limit: int, db: AsyncSession
 ) -> list[dict]:
     """Vector similarity search using pgvector."""
-    provider = get_llm_provider()
+    provider = get_embedding_provider()
     embeddings = await provider.embed([query])
     query_embedding = embeddings[0]
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"

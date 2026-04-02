@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 from app.models import Base, Note, NoteChunk
 from app.core.config import get_settings
-from app.services.llm import get_llm_provider
+from app.services.llm import get_chat_provider, get_embedding_provider
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -41,7 +41,7 @@ Note content (first 2000 chars):
 async def extract_tags(title: str, content: str) -> list[str]:
     """Use LLM to extract tags from note content."""
     try:
-        provider = get_llm_provider()
+        provider = get_chat_provider()
         prompt = AUTO_TAG_PROMPT.format(
             title=title,
             content=content[:2000],
@@ -102,7 +102,7 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
 
 async def process_note(note_id, content: str, session: AsyncSession):
     """Chunk a note's content, embed chunks, and store them."""
-    provider = get_llm_provider()
+    provider = get_embedding_provider()
 
     # Delete existing chunks for this note
     existing = await session.execute(

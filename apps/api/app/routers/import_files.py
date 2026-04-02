@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.models import User, Section, Note
 from app.schemas import ImportPlanResponse, ImportFilePreview, ImportConfirmRequest, NoteResponse
-from app.services.llm import get_llm_provider
+from app.services.llm import get_chat_provider
 from app.routers.auth import get_current_user
 from app.routers.sections import slugify
 
@@ -132,7 +132,7 @@ async def upload_files(
         for name, subs in section_map.items()
     ) if section_map else "(none yet)"
 
-    provider = get_llm_provider()
+    provider = get_chat_provider()
     previews = []
 
     for file in files:

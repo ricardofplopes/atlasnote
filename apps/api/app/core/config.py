@@ -15,15 +15,22 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
 
-    # LLM
+    # LLM — Chat
     LLM_PROVIDER: str = "openai"  # openai | ollama
     CHAT_MODEL: str = "gpt-4o-mini"
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    EMBEDDING_DIMENSIONS: int = 1536
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
+
+    # LLM — Embeddings
+    EMBEDDING_PROVIDER: str = ""  # defaults to LLM_PROVIDER if empty
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIMENSIONS: int = 1536
+    EMBEDDING_OPENAI_API_KEY: str = ""  # defaults to OPENAI_API_KEY if empty
+    EMBEDDING_OPENAI_BASE_URL: str = ""  # defaults to OPENAI_BASE_URL if empty
+
+    # Ollama
     OLLAMA_BASE_URL: str = "http://ollama:11434"
 
     # App

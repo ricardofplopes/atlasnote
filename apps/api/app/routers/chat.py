@@ -8,7 +8,7 @@ from sqlalchemy import select, text, func
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import ChatRequest, ChatResponse, Citation
-from app.services.llm import get_llm_provider
+from app.services.llm import get_chat_provider, get_embedding_provider
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -98,7 +98,7 @@ async def _retrieve_chunks(query_embedding, user_id, db, section_slug=None, limi
 
 async def _execute_tool(tool_name: str, args: dict, user_id, db) -> str:
     """Execute a tool call and return result as string."""
-    provider = get_llm_provider()
+    provider = get_embedding_provider()
 
     if tool_name == "search_notes":
         query = args.get("query", "")
@@ -130,8 +130,9 @@ async def grounded_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """Grounded Q&A over user's notes with citations."""
-    provider = get_llm_provider()
-    embeddings = await provider.embed([data.question])
+    chat = get_chat_provider()
+    embed = get_embedding_provider()
+    embeddings = await embed.embed([data.question])
     query_embedding = embeddings[0]
 
     chunks = await _retrieve_chunks(query_embedding, user.id, db, data.section_slug)
@@ -152,7 +153,7 @@ async def grounded_chat(
         messages.append(msg)
     messages.append({"role": "user", "content": data.question})
 
-    answer = await provider.chat(messages)
+    answer = await chat.chat(messages)
     return ChatResponse(answer=answer, citations=citations)
 
 
@@ -163,7 +164,8 @@ async def stream_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """Streaming grounded Q&A with agentic tool-calling RAG via SSE."""
-    provider = get_llm_provider()
+    chat = get_chat_provider()
+    embed = get_embedding_provider()
 
     async def event_generator():
         # Step 1: Try agentic approach with tool calling
@@ -177,7 +179,7 @@ async def stream_chat(
 
         for round_num in range(max_tool_rounds):
             try:
-                result = await provider.chat_with_tools(messages, SEARCH_TOOLS)
+                result = await chat.chat_with_tools(messages, SEARCH_TOOLS)
             except Exception:
                 # Fall back to direct RAG
                 break
@@ -215,7 +217,7 @@ async def stream_chat(
                 })
 
         # Final streaming response (either after tools or fallback direct RAG)
-        embeddings = await provider.embed([data.question])
+        embeddings = await embed.embed([data.question])
         chunks = await _retrieve_chunks(embeddings[0], user.id, db, data.section_slug)
 
         citations = []
@@ -236,12 +238,12 @@ async def stream_chat(
         final_messages.append({"role": "user", "content": data.question})
 
         try:
-            async for token in provider.chat_stream(final_messages):
+            async for token in chat.chat_stream(final_messages):
                 yield f"data: {json.dumps({'type': 'content', 'text': token})}\n\n"
         except Exception as e:
             logger.error(f"Stream error: {e}")
             # Fallback to non-streaming
-            answer = await provider.chat(final_messages)
+            answer = await chat.chat(final_messages)
             yield f"data: {json.dumps({'type': 'content', 'text': answer})}\n\n"
 
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"

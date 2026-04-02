@@ -12,14 +12,20 @@ from app.routers.auth import get_current_user
 router = APIRouter()
 
 ALLOWED_KEYS = [
+    # Chat provider
     "llm_provider",
     "chat_model",
-    "embedding_model",
     "openai_api_key",
     "openai_base_url",
-    "ollama_base_url",
     "azure_openai_endpoint",
     "azure_openai_api_key",
+    # Embedding provider
+    "embedding_provider",
+    "embedding_model",
+    "embedding_openai_api_key",
+    "embedding_openai_base_url",
+    # Ollama
+    "ollama_base_url",
 ]
 
 
@@ -41,8 +47,10 @@ async def get_settings(
     defaults = {
         "llm_provider": env.LLM_PROVIDER,
         "chat_model": env.CHAT_MODEL,
-        "embedding_model": env.EMBEDDING_MODEL,
         "openai_base_url": env.OPENAI_BASE_URL,
+        "embedding_provider": env.EMBEDDING_PROVIDER or env.LLM_PROVIDER,
+        "embedding_model": env.EMBEDDING_MODEL,
+        "embedding_openai_base_url": env.EMBEDDING_OPENAI_BASE_URL or env.OPENAI_BASE_URL,
         "ollama_base_url": env.OLLAMA_BASE_URL,
     }
 
