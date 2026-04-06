@@ -10,6 +10,8 @@ import {
   createSection,
   deleteSection,
   reorderNotes,
+  listSections,
+  moveSection,
 } from "@/lib/api";
 import {
   DndContext,
@@ -33,6 +35,7 @@ interface Section {
   name: string;
   slug: string;
   description: string | null;
+  parent_id: string | null;
   children: Section[];
 }
 
@@ -144,6 +147,8 @@ function SectionContent() {
   const [showNewSub, setShowNewSub] = useState(false);
   const [newSubName, setNewSubName] = useState("");
 
+  const [showMove, setShowMove] = useState(false);
+  const [allSections, setAllSections] = useState<Section[]>([]);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -332,6 +337,17 @@ function SectionContent() {
             + Sub-section
           </button>
           <button
+            onClick={async () => {
+              const secs = await listSections();
+              setAllSections(secs);
+              setShowMove(!showMove);
+            }}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg transition"
+            style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
+          >
+            Move
+          </button>
+          <button
             onClick={handleDelete}
             className="px-3 py-1.5 text-sm font-medium rounded-lg transition text-red-400 hover:bg-red-400/10"
           >
@@ -339,6 +355,53 @@ function SectionContent() {
           </button>
         </div>
       </div>
+
+      {showMove && (
+        <div
+          className="mb-4 p-4 rounded-xl"
+          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+        >
+          <p className="text-sm font-medium mb-3" style={{ color: "var(--foreground)" }}>
+            Move to:
+          </p>
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            <button
+              onClick={async () => {
+                await moveSection(slug, null);
+                setShowMove(false);
+                load();
+              }}
+              className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+              style={{ color: "var(--text-secondary)" }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+            >
+              📁 Top level (no parent)
+            </button>
+            {allSections.flatMap((s) => {
+              const items: Section[] = [s, ...(s.children || []).flatMap((c: Section) => [c, ...(c.children || [])])];
+              return items
+                .filter((item: Section) => item.id !== section?.id)
+                .map((item: Section) => (
+                  <button
+                    key={item.id}
+                    onClick={async () => {
+                      await moveSection(slug, item.id);
+                      setShowMove(false);
+                      load();
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                    style={{ color: "var(--text-secondary)" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    {item.parent_id ? "  ↳ " : "📁 "}{item.name}
+                  </button>
+                ));
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Sub-sections */}
       {section.children && section.children.length > 0 && (

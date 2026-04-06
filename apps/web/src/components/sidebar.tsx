@@ -243,6 +243,7 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
 
         {sections
           .filter((s) => !s.is_archived)
+          .sort((a, b) => a.name.localeCompare(b.name))
           .map((section) => (
             <SectionItem
               key={section.id}
@@ -335,7 +336,7 @@ function SectionItem({
       </div>
       {expanded &&
         hasChildren &&
-        section.children.map((child) => (
+        [...section.children].sort((a, b) => a.name.localeCompare(b.name)).map((child) => (
           <SectionItem
             key={child.id}
             section={child}

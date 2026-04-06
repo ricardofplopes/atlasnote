@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models import User, Section
-from app.schemas import SectionCreate, SectionUpdate, SectionReorder, SectionResponse
+from app.schemas import SectionCreate, SectionUpdate, SectionReorder, SectionMoveRequest, SectionResponse
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -26,7 +26,7 @@ async def _get_section_by_slug(
 ) -> Section:
     result = await db.execute(
         select(Section)
-        .options(selectinload(Section.children).selectinload(Section.children))
+        .options(selectinload(Section.children, recursion_depth=-1))
         .where(Section.slug == slug, Section.user_id == user_id)
     )
     section = result.scalar_one_or_none()
@@ -43,9 +43,9 @@ async def list_sections(
     """List all top-level sections with their sub-sections."""
     result = await db.execute(
         select(Section)
-        .options(selectinload(Section.children).selectinload(Section.children))
+        .options(selectinload(Section.children, recursion_depth=-1))
         .where(Section.user_id == user.id, Section.parent_id.is_(None))
-        .order_by(Section.position, Section.created_at)
+        .order_by(Section.name)
     )
     return result.scalars().all()
 
@@ -91,6 +91,46 @@ async def create_section(
         position=next_pos,
     )
     db.add(section)
+    await db.flush()
+    await db.refresh(section, ["children"])
+    return section
+
+
+@router.patch("/{slug}/move", response_model=SectionResponse)
+async def move_section(
+    slug: str,
+    data: SectionMoveRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a section to a new parent (or to top level if parent_id is null)."""
+    section = await _get_section_by_slug(slug, user.id, db)
+
+    if data.parent_id and str(data.parent_id) == str(section.id):
+        raise HTTPException(status_code=400, detail="Cannot move section into itself")
+
+    if data.parent_id:
+        target = await db.execute(
+            select(Section).where(Section.id == data.parent_id, Section.user_id == user.id)
+        )
+        target_section = target.scalar_one_or_none()
+        if target_section is None:
+            raise HTTPException(status_code=404, detail="Target parent section not found")
+
+        # Walk up from target to check it's not a descendant of section
+        current = target_section
+        while current.parent_id:
+            if str(current.parent_id) == str(section.id):
+                raise HTTPException(status_code=400, detail="Cannot move section into its own descendant")
+            result = await db.execute(
+                select(Section).where(Section.id == current.parent_id)
+            )
+            current = result.scalar_one_or_none()
+            if current is None:
+                break
+
+    section.parent_id = data.parent_id
+    section.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.refresh(section, ["children"])
     return section
@@ -173,8 +213,8 @@ async def reorder_sections(
             section.position = idx
     result = await db.execute(
         select(Section)
-        .options(selectinload(Section.children))
+        .options(selectinload(Section.children, recursion_depth=-1))
         .where(Section.user_id == user.id, Section.parent_id.is_(None))
-        .order_by(Section.position)
+        .order_by(Section.name)
     )
     return result.scalars().all()

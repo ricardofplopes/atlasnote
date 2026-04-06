@@ -44,7 +44,7 @@ class Section(Base):
 
     user = relationship("User", back_populates="sections")
     parent = relationship("Section", remote_side=[id], back_populates="children")
-    children = relationship("Section", back_populates="parent", cascade="all, delete-orphan")
+    children = relationship("Section", back_populates="parent", cascade="all, delete-orphan", order_by="Section.name")
     notes = relationship("Note", back_populates="section", cascade="all, delete-orphan")
 
     __table_args__ = (

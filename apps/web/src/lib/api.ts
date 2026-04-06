@@ -77,6 +77,13 @@ export async function archiveSection(slug: string) {
   return apiFetch(`/api/sections/${slug}/archive`, { method: "PATCH" });
 }
 
+export async function moveSection(slug: string, parentId: string | null) {
+  return apiFetch(`/api/sections/${slug}/move`, {
+    method: "PATCH",
+    body: JSON.stringify({ parent_id: parentId }),
+  });
+}
+
 // Notes
 export async function listNotesBySection(slug: string, includeSubsections = false) {
   return apiFetch(

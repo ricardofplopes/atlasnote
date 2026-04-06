@@ -41,6 +41,10 @@ class SectionReorder(BaseModel):
     section_ids: list[uuid.UUID]
 
 
+class SectionMoveRequest(BaseModel):
+    parent_id: uuid.UUID | None = None
+
+
 class SectionResponse(BaseModel):
     id: uuid.UUID
     name: str
