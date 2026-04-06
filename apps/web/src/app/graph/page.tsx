@@ -15,12 +15,20 @@ interface GraphNode {
   vx: number;
   vy: number;
   radius: number;
+  connections: number;
 }
 
 interface GraphEdge {
   source: string;
   target: string;
   score: number;
+}
+
+interface GraphStats {
+  totalNotes: number;
+  totalConnections: number;
+  sectionCount: number;
+  mostConnectedNote: string;
 }
 
 const SECTION_COLORS: Record<string, string> = {};
@@ -57,6 +65,21 @@ function GraphContent() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set());
+  const [stats, setStats] = useState<GraphStats>({
+    totalNotes: 0, totalConnections: 0, sectionCount: 0, mostConnectedNote: "",
+  });
+  const [sections, setSections] = useState<string[]>([]);
+  const [topConnected, setTopConnected] = useState<GraphNode[]>([]);
+  const [sidePanelOpen, setSidePanelOpen] = useState(true);
+
+  // Refs for canvas to read filter state each frame without effect restarts
+  const searchRef = useRef("");
+  const selectedSectionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => { searchRef.current = searchQuery; }, [searchQuery]);
+  useEffect(() => { selectedSectionsRef.current = selectedSections; }, [selectedSections]);
+
   // Pan & zoom state
   const panRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
@@ -79,27 +102,46 @@ function GraphContent() {
       const cx = w / 2;
       const cy = h / 2;
 
-      // Position notes in a spiral layout
-      const nodes: GraphNode[] = allNotes.map((n: any, i: number) => {
-        const angle = i * 0.8;
-        const r = 50 + i * 12;
+      // Group notes by section for clustered initial layout
+      const sectionCounts = new Map<string, number>();
+      for (const n of allNotes) {
+        const sec = n.section_id || "__none__";
+        sectionCounts.set(sec, (sectionCounts.get(sec) || 0) + 1);
+      }
+
+      const sectionKeys = [...sectionCounts.keys()];
+      const sectionPositions = new Map<string, { x: number; y: number }>();
+      const clusterRadius = Math.min(w, h) * 0.25;
+      sectionKeys.forEach((sec, i) => {
+        const angle = (i / sectionKeys.length) * Math.PI * 2;
+        sectionPositions.set(sec, {
+          x: cx + Math.cos(angle) * clusterRadius,
+          y: cy + Math.sin(angle) * clusterRadius,
+        });
+      });
+
+      const nodes: GraphNode[] = allNotes.map((n: Record<string, string>) => {
+        const sec = n.section_id || "__none__";
+        const center = sectionPositions.get(sec)!;
+        const spread = 60 + Math.sqrt(sectionCounts.get(sec) || 1) * 15;
         return {
           id: n.id,
           title: n.title,
           section: n.section_id,
-          x: cx + Math.cos(angle) * r + (Math.random() - 0.5) * 30,
-          y: cy + Math.sin(angle) * r + (Math.random() - 0.5) * 30,
+          x: center.x + (Math.random() - 0.5) * spread,
+          y: center.y + (Math.random() - 0.5) * spread,
           vx: 0,
           vy: 0,
-          radius: 8,
+          radius: 6,
+          connections: 0,
         };
       });
       nodesRef.current = nodes;
 
-      // Fetch relationships for all notes (batch)
+      // Fetch relationships for ALL notes (no cap)
       const allEdges: GraphEdge[] = [];
       const batchSize = 5;
-      for (let i = 0; i < Math.min(nodes.length, 30); i += batchSize) {
+      for (let i = 0; i < nodes.length; i += batchSize) {
         const batch = nodes.slice(i, i + batchSize);
         const results = await Promise.all(
           batch.map((n) => getRelatedNotes(n.id, 5).catch(() => []))
@@ -113,7 +155,6 @@ function GraphContent() {
               );
               if (!exists) {
                 allEdges.push({ source: batch[j].id, target: rel.id, score: rel.score });
-                // Update section color
                 const targetNode = nodes.find((n) => n.id === rel.id);
                 if (targetNode && rel.section_name) {
                   targetNode.section = rel.section_name;
@@ -124,6 +165,52 @@ function GraphContent() {
         }
       }
       edgesRef.current = allEdges;
+
+      // Dynamic node sizing based on connection count
+      const connCounts = new Map<string, number>();
+      for (const edge of allEdges) {
+        connCounts.set(edge.source, (connCounts.get(edge.source) || 0) + 1);
+        connCounts.set(edge.target, (connCounts.get(edge.target) || 0) + 1);
+      }
+      for (const node of nodes) {
+        node.connections = connCounts.get(node.id) || 0;
+        node.radius = Math.min(6 + node.connections * 2, 20);
+      }
+
+      // Compute stats and derived state
+      const uniqueSections = [...new Set(
+        nodes.map((n) => n.section).filter(Boolean),
+      )] as string[];
+      let mostConnected = nodes[0];
+      for (const n of nodes) {
+        if (n.connections > mostConnected.connections) mostConnected = n;
+      }
+
+      setStats({
+        totalNotes: nodes.length,
+        totalConnections: allEdges.length,
+        sectionCount: uniqueSections.length,
+        mostConnectedNote: mostConnected?.title || "",
+      });
+      setSections(uniqueSections);
+      setTopConnected(
+        [...nodes].sort((a, b) => b.connections - a.connections).slice(0, 10),
+      );
+
+      // Center graph on load
+      if (nodes.length > 0) {
+        let sumX = 0, sumY = 0;
+        for (const n of nodes) { sumX += n.x; sumY += n.y; }
+        const comX = sumX / nodes.length;
+        const comY = sumY / nodes.length;
+        const cw = canvas?.clientWidth || 800;
+        const ch = canvas?.clientHeight || 600;
+        panRef.current = {
+          x: cw / 2 - comX * zoomRef.current,
+          y: ch / 2 - comY * zoomRef.current,
+        };
+      }
+
       setLoading(false);
     } catch (e) {
       console.error(e);
@@ -221,16 +308,28 @@ function GraphContent() {
 
       const nodes = nodesRef.current;
       const edges = edgesRef.current;
+      const query = searchRef.current.toLowerCase();
+      const activeSections = selectedSectionsRef.current;
+      const hasFilter = query.length > 0 || activeSections.size > 0;
+
+      const isHighlighted = (node: GraphNode) => {
+        if (!hasFilter) return true;
+        const matchSearch = query.length === 0 || node.title.toLowerCase().includes(query);
+        const matchSection = activeSections.size === 0 || !!(node.section && activeSections.has(node.section));
+        return matchSearch && matchSection;
+      };
 
       // Draw edges
       for (const edge of edges) {
         const a = nodes.find((n) => n.id === edge.source);
         const b = nodes.find((n) => n.id === edge.target);
         if (!a || !b) continue;
+        const edgeLit = isHighlighted(a) && isHighlighted(b);
+        const baseAlpha = 0.1 + edge.score * 0.3;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
-        ctx.strokeStyle = `rgba(122,92,255,${0.1 + edge.score * 0.3})`;
+        ctx.strokeStyle = `rgba(122,92,255,${hasFilter && !edgeLit ? baseAlpha * 0.12 : baseAlpha})`;
         ctx.lineWidth = 0.5 + edge.score;
         ctx.stroke();
       }
@@ -239,8 +338,11 @@ function GraphContent() {
       for (const node of nodes) {
         const isHovered = hoveredNode === node.id;
         const isSelected = selectedNode?.id === node.id;
+        const highlighted = isHighlighted(node);
+        const dimmed = hasFilter && !highlighted;
         const r = node.radius * (isHovered || isSelected ? 1.4 : 1);
 
+        ctx.globalAlpha = dimmed ? 0.12 : 1;
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
         const color = node.section ? getSectionColor(node.section) : "#7A5CFF";
@@ -254,34 +356,17 @@ function GraphContent() {
         }
 
         // Label
-        if (isHovered || isSelected || zoomRef.current > 0.7) {
+        if (!dimmed && (isHovered || isSelected || zoomRef.current > 0.7)) {
           ctx.font = `${isHovered || isSelected ? "bold " : ""}11px Inter, sans-serif`;
           ctx.fillStyle = isHovered || isSelected ? "#fff" : "rgba(255,255,255,0.6)";
           ctx.textAlign = "center";
           const label = node.title.length > 25 ? node.title.slice(0, 22) + "..." : node.title;
           ctx.fillText(label, node.x, node.y + r + 14);
         }
+        ctx.globalAlpha = 1;
       }
 
       ctx.restore();
-
-      // Legend
-      const sections = [...new Set(nodes.map((n) => n.section).filter(Boolean))];
-      ctx.font = "11px Inter, sans-serif";
-      let ly = 20;
-      for (const sec of sections.slice(0, 8)) {
-        if (!sec) continue;
-        ctx.fillStyle = getSectionColor(sec);
-        ctx.beginPath();
-        ctx.arc(w - 120, ly, 4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(255,255,255,0.6)";
-        ctx.textAlign = "left";
-        const secLabel = sec.length > 12 ? sec.slice(0, 10) + ".." : sec;
-        ctx.fillText(secLabel, w - 110, ly + 4);
-        ly += 18;
-      }
-
       frameId = requestAnimationFrame(render);
     };
 
@@ -377,9 +462,30 @@ function GraphContent() {
     };
   }, [router]);
 
+  const toggleSection = (sec: string) => {
+    setSelectedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sec)) next.delete(sec);
+      else next.add(sec);
+      return next;
+    });
+  };
+
+  const highlightNodeInGraph = (node: GraphNode) => {
+    setSelectedNode(node);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      panRef.current = {
+        x: canvas.clientWidth / 2 - node.x * zoomRef.current,
+        y: canvas.clientHeight / 2 - node.y * zoomRef.current,
+      };
+    }
+  };
+
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem)]">
-      <div className="flex items-center justify-between mb-3">
+    <div className="flex flex-col h-[calc(100vh-3rem)] gap-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <h2 className="text-2xl font-display font-bold">Knowledge Graph</h2>
         <div className="flex items-center gap-3">
           {selectedNode && (
@@ -402,16 +508,183 @@ function GraphContent() {
         </div>
       </div>
 
-      <div className="flex-1 rounded-xl overflow-hidden relative" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin w-8 h-8 mx-auto mb-3" style={{ border: "2px solid var(--card-border)", borderTopColor: "var(--accent)", borderRadius: "50%" }} />
-              <p style={{ color: "var(--text-muted)" }}>Building knowledge graph...</p>
+      {/* Stats bar */}
+      {!loading && (
+        <div className="flex gap-3">
+          {[
+            { label: "Notes", value: stats.totalNotes },
+            { label: "Connections", value: stats.totalConnections },
+            { label: "Sections", value: stats.sectionCount },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className="px-4 py-2 rounded-lg text-xs"
+              style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+            >
+              <span style={{ color: "var(--text-muted)" }}>{s.label}</span>
+              <span className="ml-2 font-semibold" style={{ color: "var(--foreground)" }}>
+                {s.value.toLocaleString()}
+              </span>
             </div>
+          ))}
+          <div
+            className="px-4 py-2 rounded-lg text-xs flex items-center gap-2"
+            style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+          >
+            <span style={{ color: "var(--text-muted)" }}>Most Connected</span>
+            <span className="font-semibold truncate max-w-[160px]" style={{ color: "var(--foreground)" }}>
+              {stats.mostConnectedNote || "—"}
+            </span>
           </div>
-        ) : (
-          <canvas ref={canvasRef} className="w-full h-full" style={{ cursor: "grab" }} />
+        </div>
+      )}
+
+      {/* Section filter chips + Search */}
+      {!loading && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search notes…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") setSearchQuery(""); }}
+              className="text-xs px-3 py-1.5 rounded-lg outline-none"
+              style={{
+                background: "var(--card-bg)",
+                border: "1px solid var(--card-border)",
+                color: "var(--foreground)",
+                width: 180,
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="w-px h-5 mx-1" style={{ background: "var(--card-border)" }} />
+
+          {sections.map((sec) => (
+            <button
+              key={sec}
+              onClick={() => toggleSection(sec)}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full transition-colors"
+              style={{
+                background: selectedSections.has(sec) ? "var(--accent-soft)" : "var(--card-bg)",
+                border: `1px solid ${selectedSections.has(sec) ? "var(--accent)" : "var(--card-border)"}`,
+                color: selectedSections.has(sec) ? "var(--accent)" : "var(--text-secondary)",
+              }}
+            >
+              <span
+                className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                style={{ background: getSectionColor(sec) }}
+              />
+              {sec.length > 14 ? sec.slice(0, 12) + "…" : sec}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Main content: graph + side panel */}
+      <div className="flex flex-1 gap-2 min-h-0">
+        <div
+          className="flex-1 rounded-xl overflow-hidden relative"
+          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+        >
+          {loading ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center">
+                <div
+                  className="animate-spin w-8 h-8 mx-auto mb-3"
+                  style={{
+                    border: "2px solid var(--card-border)",
+                    borderTopColor: "var(--accent)",
+                    borderRadius: "50%",
+                  }}
+                />
+                <p style={{ color: "var(--text-muted)" }}>Building knowledge graph...</p>
+              </div>
+            </div>
+          ) : (
+            <canvas ref={canvasRef} className="w-full h-full" style={{ cursor: "grab" }} />
+          )}
+        </div>
+
+        {/* Side panel — Most Connected Notes */}
+        {!loading && (
+          <div
+            className="rounded-xl flex flex-col overflow-hidden"
+            style={{
+              width: sidePanelOpen ? 240 : 40,
+              minWidth: sidePanelOpen ? 240 : 40,
+              background: "var(--card-bg)",
+              border: "1px solid var(--card-border)",
+              transition: "width 0.2s, min-width 0.2s",
+            }}
+          >
+            <div
+              className="flex items-center px-3 py-2"
+              style={{ borderBottom: "1px solid var(--card-border)" }}
+            >
+              {sidePanelOpen && (
+                <span className="text-xs font-semibold flex-1" style={{ color: "var(--text-secondary)" }}>
+                  Most Connected
+                </span>
+              )}
+              <button
+                onClick={() => setSidePanelOpen((v) => !v)}
+                className="text-xs"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {sidePanelOpen ? "»" : "«"}
+              </button>
+            </div>
+
+            {sidePanelOpen && (
+              <div className="flex-1 overflow-y-auto px-2 py-1">
+                {topConnected.map((node, i) => (
+                  <button
+                    key={node.id}
+                    onClick={() => highlightNodeInGraph(node)}
+                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors"
+                    style={{
+                      background: selectedNode?.id === node.id ? "var(--accent-soft)" : "transparent",
+                    }}
+                  >
+                    <span
+                      className="font-medium"
+                      style={{ color: "var(--text-muted)", minWidth: 16 }}
+                    >
+                      {i + 1}.
+                    </span>
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: node.section ? getSectionColor(node.section) : "var(--accent)" }}
+                    />
+                    <span className="truncate flex-1" style={{ color: "var(--foreground)" }}>
+                      {node.title}
+                    </span>
+                    <span
+                      className="px-1.5 py-0.5 rounded font-semibold flex-shrink-0"
+                      style={{
+                        fontSize: 10,
+                        background: "var(--accent-soft)",
+                        color: "var(--accent)",
+                      }}
+                    >
+                      {node.connections}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

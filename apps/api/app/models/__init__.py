@@ -131,3 +131,26 @@ class Setting(Base):
     __table_args__ = (
         Index("ix_settings_user_key", "user_id", "key", unique=True),
     )
+
+
+class Todo(Base):
+    __tablename__ = "todos"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    is_done = Column(Boolean, default=False)
+    is_suggested = Column(Boolean, default=False)
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", backref="todos")
+    note = relationship("Note", backref="todos")
+
+    __table_args__ = (
+        Index("ix_todos_user", "user_id"),
+        Index("ix_todos_user_done", "user_id", "is_done"),
+    )

@@ -150,6 +150,7 @@ function SectionContent() {
   const [newSubName, setNewSubName] = useState("");
 
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -160,15 +161,18 @@ function SectionContent() {
 
   const load = () => {
     setError(false);
-    getSection(slug)
-      .then(setSection)
-      .catch(() => setError(true));
-    listNotesBySection(slug, true).then(setNotes).catch(console.error);
+    setLoading(true);
+    Promise.all([
+      getSection(slug).catch(() => { setError(true); return null; }),
+      listNotesBySection(slug, true).catch(() => []),
+    ]).then(([sec, notesList]) => {
+      if (sec) setSection(sec);
+      setNotes(notesList || []);
+      setLoading(false);
+    });
   };
 
   useEffect(() => {
-    setSection(null);
-    setNotes([]);
     load();
   }, [slug]);
 
@@ -237,7 +241,7 @@ function SectionContent() {
       </div>
     );
   if (!section)
-    return <div style={{ color: "var(--text-muted)" }}>Loading...</div>;
+    return <div style={{ color: "var(--text-muted)" }}>{loading ? "Loading..." : "Section not found."}</div>;
 
   return (
     <div className="max-w-4xl">

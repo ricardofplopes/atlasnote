@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
@@ -12,12 +13,20 @@ from app.services.llm import get_chat_provider
 from app.routers.auth import get_current_user
 from app.routers.sections import slugify
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
-# Regex for date headers: DD-MM-YYYY followed by dashes
+# Regex for date headers in various formats
 DATE_HEADER_RE = re.compile(
-    r"(?:^|\n)\s*(\d{2}-\d{2}-\d{4})\s*-{5,}",
-    re.MULTILINE,
+    r"(?:^|\n)\s*-{0,5}\s*"
+    r"("
+    r"\d{2}[-/\.]\d{2}[-/\.]\d{4}"   # DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+    r"|\d{4}[-/\.]\d{2}[-/\.]\d{2}"  # YYYY-MM-DD, YYYY/MM/DD
+    r"|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}"  # 5 January 2025
+    r")"
+    r"\s*[-=]{0,}",
+    re.MULTILINE | re.IGNORECASE,
 )
 
 CATEGORIZE_PROMPT = """You are a note organizer. Given a filename and content, suggest how to categorize this note.
@@ -56,7 +65,7 @@ def split_by_dates(content: str) -> list[tuple[str, str]]:
     """Split content by date headers. Returns list of (date_str, content) tuples,
     sorted latest-date-first.
     
-    Date format: DD-MM-YYYY followed by 5+ dashes.
+    Supports DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, and natural language dates.
     Returns empty list if fewer than 2 dates are found (no splitting needed).
     """
     matches = list(DATE_HEADER_RE.finditer(content))
@@ -78,22 +87,52 @@ def split_by_dates(content: str) -> list[tuple[str, str]]:
     
     # Sort by date descending (latest first)
     def parse_date(entry: tuple[str, str]) -> datetime:
+        date_str = entry[0].strip()
+        for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        # Try natural language dates (e.g., "5 January 2025")
         try:
-            return datetime.strptime(entry[0], "%d-%m-%Y")
+            cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str)
+            return datetime.strptime(cleaned, "%d %B %Y")
         except ValueError:
-            return datetime.min
+            pass
+        try:
+            cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str)
+            return datetime.strptime(cleaned, "%d %b %Y")
+        except ValueError:
+            pass
+        return datetime.min
     
     entries.sort(key=parse_date, reverse=True)
     return entries
 
 
 def format_date_for_title(date_str: str) -> str:
-    """Convert DD-MM-YYYY to a readable date format."""
+    """Convert various date formats to a readable format."""
+    date_str = date_str.strip()
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            return dt.strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    # Try natural language dates
     try:
-        dt = datetime.strptime(date_str, "%d-%m-%Y")
+        cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str)
+        dt = datetime.strptime(cleaned, "%d %B %Y")
         return dt.strftime("%d/%m/%Y")
     except ValueError:
-        return date_str
+        pass
+    try:
+        cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', date_str)
+        dt = datetime.strptime(cleaned, "%d %b %Y")
+        return dt.strftime("%d/%m/%Y")
+    except ValueError:
+        pass
+    return date_str
 
 
 def make_entry_title(base_title: str, date_str: str, person_name: str | None = None) -> str:
@@ -133,8 +172,11 @@ async def upload_files(
     ) if section_map else "(none yet)"
 
     provider = get_chat_provider()
+    from app.services.llm import get_provider_info
+    logger.info(f"[Import] Chat provider: {get_provider_info(provider)}")
     previews = []
 
+    logger.info(f"[Import] Processing {len(files)} file(s) for user {user.email}")
     for file in files:
         if not file.filename or not (file.filename.endswith(".txt") or file.filename.endswith(".md")):
             continue
@@ -146,6 +188,7 @@ async def upload_files(
             content=content[:2000],
         )
 
+        logger.info(f"[Import] Categorizing file: {file.filename}")
         try:
             response = await provider.chat([{"role": "user", "content": prompt}], temperature=0.2)
             response = response.strip()
@@ -160,10 +203,13 @@ async def upload_files(
                 "tags": ["imported"],
             }
 
+        logger.info(f"[Import] Categorization result for '{file.filename}': section={suggestion.get('section')}, title={suggestion.get('title')}")
+
         # Try to split by dates
         date_entries = split_by_dates(content)
 
         if date_entries:
+            logger.info(f"[Import] Date-split '{file.filename}' into {len(date_entries)} entries")
             # Extract person name from subsection for title generation
             person_name = suggestion.get("subsection")
             

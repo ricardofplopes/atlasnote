@@ -208,3 +208,36 @@ class SettingItem(BaseModel):
 
 class SettingsResponse(BaseModel):
     settings: dict[str, str | None]
+
+
+# ── Todos ──
+
+class TodoCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str | None = None
+    note_id: uuid.UUID | None = None
+
+
+class TodoUpdate(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=500)
+    description: str | None = None
+    is_done: bool | None = None
+
+
+class TodoResponse(BaseModel):
+    id: uuid.UUID
+    title: str
+    description: str | None = None
+    is_done: bool
+    is_suggested: bool
+    note_id: uuid.UUID | None = None
+    position: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TodoSuggestion(BaseModel):
+    title: str
+    description: str | None = None

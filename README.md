@@ -15,7 +15,9 @@
 - **Version History** — Every note update creates a version snapshot with restore capability
 - **Semantic Search** — Chunk and embed note content, search by meaning via pgvector
 - **Grounded Chat/Q&A** — Ask questions about your notes, get answers with citations
-- **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections and creates notes
+- **TODOs** — Manual task management with LLM-powered auto-suggestions from notes
+- **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search, dynamic node sizing, and "Most Connected" panel
+- **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections and creates notes, with console logging of LLM provider/task and improved date splitting supporting multiple date formats
 - **MCP Integration** — First-class MCP tools and resources for AI assistant integration
 - **Multi-user** — Google OAuth authentication with per-user data isolation
 - **Docker Compose** — One-command local deployment
@@ -194,6 +196,36 @@ To use Ollama instead of OpenAI:
 | POST | `/api/import/upload` | Upload .txt files for LLM categorization |
 | POST | `/api/import/confirm` | Confirm and execute import plan |
 
+### TODOs
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/todos` | List todos (filter: `all`, `active`, `done`, `suggested`) |
+| POST | `/api/todos` | Create a manual todo |
+| PUT | `/api/todos/{id}` | Update a todo |
+| DELETE | `/api/todos/{id}` | Delete a todo |
+| PATCH | `/api/todos/{id}/toggle` | Toggle done/undone |
+| POST | `/api/todos/suggest/{note_id}` | LLM-generate suggested todos from a note |
+| POST | `/api/todos/{id}/dismiss` | Dismiss a suggested todo |
+
+## TODOs
+
+Atlas Note includes a task management system that combines manual todos with AI-powered suggestions.
+
+- **Manual CRUD** — Add, edit, delete, and mark todos as done from the sidebar panel
+- **LLM Auto-Suggestions** — When new notes are processed, the worker automatically extracts actionable items (commitments, deadlines, follow-ups) and creates them as suggested TODOs
+- **Filters** — View todos by status: All, Active, Done, or Suggested
+- **Source Note Linking** — Suggested TODOs are linked back to the note they were extracted from, so you can always see the original context
+
+## Knowledge Graph
+
+The interactive knowledge graph (`/graph`) visualizes notes and their semantic connections on a force-directed canvas.
+
+- **Stats Panel** — Shows total notes, total connections, section count, and most connected note
+- **Section Filters** — Toggle visibility per section with color-coded chips
+- **Search** — Filter nodes by title in real time
+- **Dynamic Node Sizing** — Nodes scale by number of connections
+- **Most Connected Panel** — Highlights the top-connected notes for quick navigation
+
 ## MCP Integration
 
 Atlas Note ships with a full MCP server for integration with AI assistants like GitHub Copilot.
@@ -279,10 +311,11 @@ atlasnote/
 
 ```
 User
- └── Section (hierarchical via parent_id)
-      └── Note
-           ├── NoteVersion (snapshots on update)
-           └── NoteChunk (chunks with vector embeddings)
+ ├── Section (hierarchical via parent_id)
+ │    └── Note
+ │         ├── NoteVersion (snapshots on update)
+ │         └── NoteChunk (chunks with vector embeddings)
+ └── Todo (manual or LLM-suggested, optionally linked to a Note)
 ```
 
 ## Development

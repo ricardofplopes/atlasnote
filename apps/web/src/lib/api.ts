@@ -269,3 +269,38 @@ export async function confirmImport(previews: ImportFilePreview[], files: File[]
 export async function getRelatedNotes(noteId: string, limit = 8) {
   return apiFetch(`/api/notes/${noteId}/related?limit=${limit}`);
 }
+
+// Todos
+export async function listTodos(filter: string = "all") {
+  return apiFetch(`/api/todos?filter=${filter}`);
+}
+
+export async function createTodo(data: { title: string; description?: string; note_id?: string }) {
+  return apiFetch("/api/todos", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateTodo(id: string, data: { title?: string; description?: string; is_done?: boolean }) {
+  return apiFetch(`/api/todos/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteTodo(id: string) {
+  return apiFetch(`/api/todos/${id}`, { method: "DELETE" });
+}
+
+export async function toggleTodo(id: string) {
+  return apiFetch(`/api/todos/${id}/toggle`, { method: "PATCH" });
+}
+
+export async function suggestTodos(noteId: string) {
+  return apiFetch(`/api/todos/suggest/${noteId}`, { method: "POST" });
+}
+
+export async function dismissTodo(id: string) {
+  return apiFetch(`/api/todos/${id}/dismiss`, { method: "POST" });
+}

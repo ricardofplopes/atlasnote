@@ -34,8 +34,10 @@ function ImportContent() {
   const [importedCount, setImportedCount] = useState(0);
   const [logs, setLogs] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [clicking, setClicking] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addLog = (msg: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -71,6 +73,12 @@ function ImportContent() {
     e.preventDefault();
     e.stopPropagation();
     setDragging(false);
+  };
+
+  const handleZoneClick = () => {
+    setClicking(true);
+    setTimeout(() => setClicking(false), 150);
+    fileInputRef.current?.click();
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -170,8 +178,10 @@ function ImportContent() {
         className={`mb-6 p-8 border-2 border-dashed rounded-xl text-center transition-all ${dragging ? 'scale-[1.01]' : ''}`}
         style={{
           borderColor: dragging ? 'var(--accent)' : 'var(--card-border)',
-          background: dragging ? 'var(--accent-soft)' : 'transparent',
+          background: clicking ? 'rgba(122,92,255,0.12)' : dragging ? 'var(--accent-soft)' : 'transparent',
+          cursor: 'pointer',
         }}
+        onClick={handleZoneClick}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -184,12 +194,12 @@ function ImportContent() {
           Drag & drop files here, or click to browse
         </p>
         <input
+          ref={fileInputRef}
           type="file"
           multiple
           accept=".txt,.md"
           onChange={handleFileSelect}
-          className="mb-1 text-sm"
-          style={{ color: 'var(--text-secondary)' }}
+          style={{ display: 'none' }}
         />
         {files.length > 0 && (
           <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>{files.length} file(s) selected</p>

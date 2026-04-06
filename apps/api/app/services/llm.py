@@ -5,10 +5,13 @@ Supports independent configuration for chat and embeddings:
   - get_embedding_provider()  → embed
   - get_llm_provider()        → legacy, returns chat provider (has embed too)
 """
+import logging
 from abc import ABC, abstractmethod
 from typing import AsyncGenerator
 from openai import AsyncOpenAI
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class LLMProvider(ABC):
@@ -202,3 +205,12 @@ def get_embedding_provider() -> LLMProvider:
 def get_llm_provider() -> LLMProvider:
     """Legacy: returns the chat provider (also has embed via same config)."""
     return get_chat_provider()
+
+
+def get_provider_info(provider: LLMProvider) -> str:
+    """Return a human-readable description of the provider."""
+    if isinstance(provider, OllamaProvider):
+        return f"Ollama (model={provider.chat_model}, base_url={provider.client.base_url})"
+    elif isinstance(provider, OpenAIProvider):
+        return f"OpenAI-compatible (model={provider.chat_model}, base_url={provider.client.base_url})"
+    return "Unknown provider"

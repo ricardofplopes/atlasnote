@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from app.models import Base, Note, NoteChunk
+from app.models import Base, Note, NoteChunk, Todo
 from app.core.config import get_settings
 from app.services.llm import get_chat_provider, get_embedding_provider
 
@@ -36,6 +36,25 @@ Note title: {title}
 
 Note content (first 2000 chars):
 {content}"""
+
+EXTRACT_TODOS_PROMPT = """You are a productivity assistant. Analyze the following note and extract any actionable TODO items.
+
+Look for:
+- Action items explicitly mentioned (e.g., "need to...", "should...", "TODO:", "follow up on...")
+- Commitments or promises made
+- Deadlines or time-sensitive tasks
+- Questions that need answers or research
+
+Note title: {title}
+
+Note content (first 3000 chars):
+{content}
+
+Return a JSON array of TODO items. Each item should have "title" (short actionable description, max 100 chars) and optionally "description" (additional context). If no TODOs are found, return an empty array [].
+
+Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout by Friday"}}]
+
+Return ONLY valid JSON, no extra text."""
 
 
 async def extract_tags(title: str, content: str) -> list[str]:
@@ -162,6 +181,69 @@ async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, 
         logger.info(f"Auto-tagged note {note_id}: {tags}")
 
 
+async def auto_suggest_todos(note_id, user_id, title: str, content: str, session: AsyncSession):
+    """Use LLM to extract TODO suggestions from a note."""
+    if not content.strip():
+        return
+
+    # Check if we already suggested todos for this note
+    existing = await session.execute(
+        select(Todo).where(Todo.note_id == note_id, Todo.is_suggested == True)
+    )
+    if existing.scalars().first():
+        return  # Already suggested
+
+    try:
+        provider = get_chat_provider()
+        prompt = EXTRACT_TODOS_PROMPT.format(
+            title=title,
+            content=content[:3000],
+        )
+        result = await provider.chat([
+            {"role": "system", "content": "You are a TODO extraction assistant. Return only valid JSON arrays."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+
+        result = result.strip()
+        if result.startswith("```"):
+            result = re.sub(r"```\w*\n?", "", result).strip().rstrip("`")
+
+        suggestions = json.loads(result)
+        if not isinstance(suggestions, list) or len(suggestions) == 0:
+            return
+
+        # Get max position for user
+        from sqlalchemy import func as sa_func
+        pos_result = await session.execute(
+            select(sa_func.coalesce(sa_func.max(Todo.position), -1)).where(Todo.user_id == user_id)
+        )
+        max_pos = pos_result.scalar()
+
+        created = 0
+        for i, suggestion in enumerate(suggestions[:5]):  # Cap at 5 per note
+            todo_title = str(suggestion.get("title", "")).strip()
+            if not todo_title:
+                continue
+
+            todo = Todo(
+                user_id=user_id,
+                note_id=note_id,
+                title=todo_title[:500],
+                description=suggestion.get("description"),
+                is_suggested=True,
+                position=max_pos + 1 + i,
+            )
+            session.add(todo)
+            created += 1
+
+        if created > 0:
+            await session.commit()
+            logger.info(f"Auto-suggested {created} todos from note {note_id}")
+
+    except Exception as e:
+        logger.warning(f"Auto-suggest todos failed for note {note_id}: {e}")
+
+
 async def run_worker():
     """Main worker loop — polls for notes that need re-chunking."""
     logger.info("Worker loop started")
@@ -187,6 +269,7 @@ async def run_worker():
                     try:
                         await process_note(note.id, note.content, session)
                         await auto_tag_note(note.id, note.title, note.content, note.tags or [], session)
+                        await auto_suggest_todos(note.id, note.user_id, note.title, note.content, session)
                     except Exception as e:
                         logger.error(f"Error processing note {note.id}: {e}")
                         await session.rollback()

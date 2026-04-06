@@ -93,8 +93,20 @@ function IconSettings({ className }: { className?: string }) {
   );
 }
 
+function IconTodos({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <rect x="3" y="3" width="14" height="14" rx="2.5" />
+      <path d="M7 7.5l1.5 1.5L11.5 6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 13h6" strokeLinecap="round" />
+      <path d="M7 10.5h4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const navItems = [
   { href: "/", label: "Recent Notes", Icon: IconRecentNotes },
+  { href: "/todos", label: "TODOs", Icon: IconTodos },
   { href: "/search", label: "Search", Icon: IconSearch },
   { href: "/chat", label: "Chat", Icon: IconChat },
   { href: "/wiki", label: "Wiki", Icon: IconWiki },
