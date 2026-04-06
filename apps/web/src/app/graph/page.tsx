@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { listRecentNotes, getRelatedNotes } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -48,11 +47,7 @@ function getSectionColor(section: string): string {
 }
 
 export default function GraphPage() {
-  return (
-    <AppShell>
-      <GraphContent />
-    </AppShell>
-  );
+  return <GraphContent />;
 }
 
 function GraphContent() {

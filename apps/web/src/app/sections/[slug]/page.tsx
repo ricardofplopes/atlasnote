@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -129,11 +128,7 @@ function SortableNoteCard({ note }: { note: Note }) {
 }
 
 export default function SectionPage() {
-  return (
-    <AppShell>
-      <SectionContent />
-    </AppShell>
-  );
+  return <SectionContent />;
 }
 
 function SectionContent() {
@@ -234,6 +229,64 @@ function SectionContent() {
     [notes]
   );
 
+  const suggestTitle = (): string => {
+    if (notes.length === 0) return "";
+
+    const datePatterns = [
+      { regex: /(\d{2}\/\d{2}\/\d{4})/, format: (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` },
+      { regex: /(\d{4}-\d{2}-\d{2})/, format: (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` },
+      { regex: /(\d{2}-\d{2}-\d{4})/, format: (d: Date) => `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}` },
+      { regex: /(\d{2}\.\d{2}\.\d{4})/, format: (d: Date) => `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}` },
+    ];
+
+    for (const pattern of datePatterns) {
+      const matches: { prefix: string; suffix: string }[] = [];
+
+      for (const note of notes) {
+        const match = note.title.match(pattern.regex);
+        if (match) {
+          const idx = match.index!;
+          const prefix = note.title.substring(0, idx);
+          const suffix = note.title.substring(idx + match[1].length);
+          matches.push({ prefix, suffix });
+        }
+      }
+
+      if (matches.length >= 2) {
+        const prefixCounts: Record<string, number> = {};
+        for (const m of matches) {
+          prefixCounts[m.prefix] = (prefixCounts[m.prefix] || 0) + 1;
+        }
+        const topPrefix = Object.entries(prefixCounts).sort((a, b) => b[1] - a[1])[0];
+        if (topPrefix && topPrefix[1] >= 2) {
+          const today = new Date();
+          return `${topPrefix[0]}${pattern.format(today)}`;
+        }
+      }
+    }
+
+    if (notes.length >= 2) {
+      const titles = notes.map(n => n.title);
+      let prefix = titles[0];
+      for (let i = 1; i < titles.length; i++) {
+        while (!titles[i].startsWith(prefix) && prefix.length > 0) {
+          prefix = prefix.substring(0, prefix.length - 1);
+        }
+      }
+      if (prefix.length >= 5) {
+        const matchCount = titles.filter(t => t.startsWith(prefix)).length;
+        if (matchCount >= Math.ceil(titles.length * 0.5)) {
+          const today = new Date();
+          const dateStr = `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+          const cleanPrefix = prefix.replace(/[\s—–\-]+$/, '');
+          return `${cleanPrefix} — ${dateStr}`;
+        }
+      }
+    }
+
+    return "";
+  };
+
   if (error)
     return (
       <div style={{ color: "var(--text-muted)" }}>
@@ -256,7 +309,13 @@ function SectionContent() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowNewNote(!showNewNote)}
+            onClick={() => {
+              const next = !showNewNote;
+              setShowNewNote(next);
+              if (next) {
+                setNewTitle(suggestTitle());
+              }
+            }}
             className="px-3 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition"
             style={{ background: "var(--accent)" }}
           >

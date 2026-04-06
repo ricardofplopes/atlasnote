@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { Suspense, useEffect, useState } from "react";
 import { listRecentNotes, loginWithGitHub } from "@/lib/api";
 import Link from "next/link";
@@ -41,9 +40,7 @@ export default function HomePage() {
       <Suspense fallback={null}>
         <GitHubCallbackHandler />
       </Suspense>
-      <AppShell>
-        <RecentNotes />
-      </AppShell>
+      <RecentNotes />
     </>
   );
 }

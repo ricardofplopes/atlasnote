@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState, useRef, useEffect } from "react";
 import { streamChat } from "@/lib/api";
 import Link from "next/link";
@@ -27,11 +26,7 @@ interface Message {
 }
 
 export default function ChatPage() {
-  return (
-    <AppShell>
-      <ChatContent />
-    </AppShell>
-  );
+  return <ChatContent />;
 }
 
 function ChatContent() {

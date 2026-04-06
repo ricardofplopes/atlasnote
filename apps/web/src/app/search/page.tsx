@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState } from "react";
 import { semanticSearch } from "@/lib/api";
 import Link from "next/link";
@@ -14,11 +13,7 @@ interface ChunkResult {
 }
 
 export default function SearchPage() {
-  return (
-    <AppShell>
-      <SearchContent />
-    </AppShell>
-  );
+  return <SearchContent />;
 }
 
 function SearchContent() {

@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -52,11 +51,7 @@ interface RelatedNote {
 }
 
 export default function NotePage() {
-  return (
-    <AppShell>
-      <NoteContent />
-    </AppShell>
-  );
+  return <NoteContent />;
 }
 
 function MiniGraph({ noteId, noteTitle }: { noteId: string; noteTitle: string }) {

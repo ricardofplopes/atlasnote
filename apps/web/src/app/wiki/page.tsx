@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState, useEffect } from "react";
 import { listSections, generateWiki } from "@/lib/api";
 import Link from "next/link";
@@ -21,11 +20,7 @@ interface WikiCitation {
 }
 
 export default function WikiPage() {
-  return (
-    <AppShell>
-      <WikiContent />
-    </AppShell>
-  );
+  return <WikiContent />;
 }
 
 function WikiContent() {

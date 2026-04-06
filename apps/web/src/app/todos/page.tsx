@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo } from "@/lib/api";
@@ -18,11 +17,7 @@ interface Todo {
 }
 
 export default function TodosPage() {
-  return (
-    <AppShell>
-      <TodosContent />
-    </AppShell>
-  );
+  return <TodosContent />;
 }
 
 function TodosContent() {

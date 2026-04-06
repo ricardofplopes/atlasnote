@@ -172,8 +172,12 @@ async def upload_files(
     ) if section_map else "(none yet)"
 
     provider = get_chat_provider()
-    from app.services.llm import get_provider_info
-    logger.info(f"[Import] Chat provider: {get_provider_info(provider)}")
+    from app.services.llm import get_provider_info, get_embedding_provider
+    chat_info = get_provider_info(provider)
+    embedding_provider = get_embedding_provider()
+    embedding_info = get_provider_info(embedding_provider)
+    logger.info(f"[Import] Chat provider: {chat_info}")
+    logger.info(f"[Import] Embedding provider: {embedding_info}")
     previews = []
 
     logger.info(f"[Import] Processing {len(files)} file(s) for user {user.email}")
@@ -244,7 +248,11 @@ async def upload_files(
                 )
             )
 
-    return ImportPlanResponse(files=previews)
+    return ImportPlanResponse(
+        files=previews,
+        chat_provider_info=chat_info,
+        embedding_provider_info=embedding_info,
+    )
 
 
 @router.post("/confirm", response_model=list[NoteResponse])

@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState, useRef, useEffect } from "react";
 import { confirmImport } from "@/lib/api";
 
@@ -18,11 +17,7 @@ interface FilePreview {
 }
 
 export default function ImportPage() {
-  return (
-    <AppShell>
-      <ImportContent />
-    </AppShell>
-  );
+  return <ImportContent />;
 }
 
 function ImportContent() {
@@ -96,19 +91,20 @@ function ImportContent() {
 
     const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const allPreviews: FilePreview[] = [];
+    let providerInfoShown = false;
 
-    // Process files one by one for progress feedback
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       addLog(`📄 Analyzing "${file.name}" (${i + 1}/${files.length})...`);
-      addLog(`   ↳ Sending to LLM for categorization...`);
 
       try {
+        addLog(`   ↳ Reading file content...`);
         const formData = new FormData();
         formData.append("files", file);
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
+        addLog(`   ↳ Sending to LLM for categorization...`);
         const res = await fetch(`${API_URL}/api/import/upload`, {
           method: "POST",
           headers,
@@ -121,10 +117,18 @@ function ImportContent() {
         }
 
         const data = await res.json();
+
+        // Show provider info once
+        if (!providerInfoShown && (data.chat_provider_info || data.embedding_provider_info)) {
+          addLog(`🔧 Chat provider: ${data.chat_provider_info || "unknown"}`);
+          addLog(`🔧 Embedding provider: ${data.embedding_provider_info || "unknown"}`);
+          providerInfoShown = true;
+        }
+
         if (data.files && data.files.length > 0) {
+          addLog(`   ✓ LLM response received — parsing categorization...`);
           const splitFrom = data.files[0].split_from;
           if (splitFrom && data.files.length > 1) {
-            // File was split into multiple entries by date
             addLog(`   ✓ Detected ${data.files.length} date entries — splitting into separate notes`);
             for (const preview of data.files) {
               allPreviews.push(preview);
@@ -245,6 +249,8 @@ function ImportContent() {
                 ) : log.includes("✅") ? (
                   <span style={{ color: '#a78bfa' }}>{log}</span>
                 ) : log.includes("🚀") ? (
+                  <span style={{ color: '#38bdf8' }}>{log}</span>
+                ) : log.includes("🔧") ? (
                   <span style={{ color: '#38bdf8' }}>{log}</span>
                 ) : (
                   log

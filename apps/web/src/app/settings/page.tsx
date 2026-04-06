@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useState, useEffect } from "react";
 import { getSettings, updateSettings } from "@/lib/api";
 
@@ -112,11 +111,7 @@ const SETTING_GROUPS: SettingGroup[] = [
 ];
 
 export default function SettingsPage() {
-  return (
-    <AppShell>
-      <SettingsContent />
-    </AppShell>
-  );
+  return <SettingsContent />;
 }
 
 function SettingsContent() {

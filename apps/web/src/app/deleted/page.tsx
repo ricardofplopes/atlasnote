@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/app-shell";
 import { useEffect, useState } from "react";
 import { listDeletedNotes, restoreNote, hardDeleteNote } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -12,11 +11,7 @@ interface Note {
 }
 
 export default function DeletedPage() {
-  return (
-    <AppShell>
-      <DeletedContent />
-    </AppShell>
-  );
+  return <DeletedContent />;
 }
 
 function DeletedContent() {

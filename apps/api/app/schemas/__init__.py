@@ -173,6 +173,8 @@ class ImportFilePreview(BaseModel):
 
 class ImportPlanResponse(BaseModel):
     files: list[ImportFilePreview]
+    chat_provider_info: str | None = None
+    embedding_provider_info: str | None = None
 
 
 class ImportConfirmRequest(BaseModel):
