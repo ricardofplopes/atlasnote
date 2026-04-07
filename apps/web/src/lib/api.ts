@@ -12,7 +12,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
   if (res.status === 401 && typeof window !== "undefined") {
     localStorage.removeItem("token");
-    window.location.href = "/";
+    window.dispatchEvent(new Event("auth:logout"));
     throw new Error("Unauthorized");
   }
   if (!res.ok) {

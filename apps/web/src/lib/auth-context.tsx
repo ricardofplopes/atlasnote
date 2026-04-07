@@ -45,8 +45,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  // Clear auth state when any API call returns 401
+  useEffect(() => {
+    const handleLogout = () => {
+      setTokenState(null);
+      setUser(null);
+      setLoading(false);
+    };
+    window.addEventListener("auth:logout", handleLogout);
+    return () => window.removeEventListener("auth:logout", handleLogout);
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem("token");
+    const params = new URLSearchParams(window.location.search);
+    const hasOAuthCode = params.has("github_code");
+
+    // Skip getMe() if an OAuth callback is in progress — the callback
+    // handler will authenticate and call setToken, which triggers the
+    // second useEffect below.
+    if (hasOAuthCode) {
+      if (stored) localStorage.removeItem("token");
+      setLoading(false);
+      return;
+    }
+
     if (stored) {
       setTokenState(stored);
       getMe()
