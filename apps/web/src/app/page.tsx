@@ -1,10 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
-import { listRecentNotes, loginWithGitHub } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { listRecentNotes } from "@/lib/api";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { useSearchParams } from "next/navigation";
 
 interface Note {
   id: string;
@@ -15,34 +14,8 @@ interface Note {
   updated_at: string;
 }
 
-function GitHubCallbackHandler() {
-  const { setToken, user } = useAuth();
-  const searchParams = useSearchParams();
-
-  useEffect(() => {
-    const code = searchParams.get("github_code");
-    if (code && !user) {
-      loginWithGitHub(code)
-        .then((data) => {
-          setToken(data.access_token);
-          window.history.replaceState({}, "", "/");
-        })
-        .catch(console.error);
-    }
-  }, [searchParams, user, setToken]);
-
-  return null;
-}
-
 export default function HomePage() {
-  return (
-    <>
-      <Suspense fallback={null}>
-        <GitHubCallbackHandler />
-      </Suspense>
-      <RecentNotes />
-    </>
-  );
+  return <RecentNotes />;
 }
 
 function RecentNotes() {

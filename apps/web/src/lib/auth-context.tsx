@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { getMe } from "@/lib/api";
+import { getMe, loginWithGitHub } from "@/lib/api";
 
 interface User {
   id: string;
@@ -59,14 +59,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem("token");
     const params = new URLSearchParams(window.location.search);
-    const hasOAuthCode = params.has("github_code");
+    const githubCode = params.get("github_code");
 
-    // Skip getMe() if an OAuth callback is in progress — the callback
-    // handler will authenticate and call setToken, which triggers the
-    // second useEffect below.
-    if (hasOAuthCode) {
+    if (githubCode) {
+      // OAuth callback — exchange the code for a JWT right here,
+      // because page-level components don't render while !user.
       if (stored) localStorage.removeItem("token");
-      setLoading(false);
+      loginWithGitHub(githubCode)
+        .then((data) => {
+          setToken(data.access_token);
+          window.history.replaceState({}, "", "/");
+        })
+        .catch((err) => {
+          console.error("GitHub login failed:", err);
+          setLoading(false);
+        });
       return;
     }
 
