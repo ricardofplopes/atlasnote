@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.models import User, Note, Todo
 from app.schemas import TodoCreate, TodoUpdate, TodoResponse, TodoSuggestion
-from app.services.llm import get_chat_provider
+from app.services.llm import get_chat_provider, get_user_llm_config, get_chat_provider_from_config
 from app.routers.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -157,7 +157,8 @@ async def suggest_todos(
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    provider = get_chat_provider()
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
     prompt = SUGGEST_TODOS_PROMPT.format(
         title=note.title,
         content=note.content[:4000],

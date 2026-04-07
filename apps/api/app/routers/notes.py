@@ -159,6 +159,69 @@ async def reorder_notes(
     return updated
 
 
+@router.post("/{note_id}/auto-tag")
+async def auto_tag_note_endpoint(
+    note_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Trigger auto-tagging for a specific note."""
+    result = await db.execute(
+        select(Note).where(Note.id == note_id, Note.user_id == user.id)
+    )
+    note = result.scalar_one_or_none()
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config, get_provider_info
+    user_cfg = await get_user_llm_config(user.id, db)
+    chat_provider = get_chat_provider_from_config(user_cfg)
+
+    import json, re, logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"[Auto-tag] Using provider: {get_provider_info(chat_provider)} for note {note_id}")
+
+    AUTO_TAG_PROMPT = """You are a knowledge management assistant. Extract relevant tags from the following note content.
+
+Rules:
+- Return 2-6 tags that describe the main topics, people, projects, or concepts
+- Tags should be short (1-3 words each)
+- Use title case
+- Focus on what would help the user find this note later
+- Do not include generic tags like "Note" or "Text"
+
+Return ONLY a JSON array of strings, nothing else. Example: ["Machine Learning", "Python", "Data Pipeline"]
+
+Note title: {title}
+
+Note content (first 2000 chars):
+{content}"""
+
+    prompt = AUTO_TAG_PROMPT.format(title=note.title, content=(note.content or "")[:2000])
+
+    try:
+        result_text = await chat_provider.chat([
+            {"role": "system", "content": "You are a tagging assistant. Return only valid JSON arrays."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+
+        result_text = result_text.strip()
+        if result_text.startswith("```"):
+            result_text = re.sub(r"```\w*\n?", "", result_text).strip().rstrip("`")
+
+        tags = json.loads(result_text)
+        if isinstance(tags, list):
+            tags = [str(t).strip() for t in tags if isinstance(t, str) and t.strip()][:6]
+            note.tags = tags
+            await db.flush()
+            return {"tags": tags}
+    except Exception as e:
+        logger.warning(f"Auto-tagging failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-tagging failed: {str(e)}")
+
+    return {"tags": []}
+
+
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: uuid.UUID,

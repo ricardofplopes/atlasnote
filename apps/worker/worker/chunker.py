@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 
 from app.models import Base, Note, NoteChunk, Todo
 from app.core.config import get_settings
-from app.services.llm import get_chat_provider, get_embedding_provider
+from app.services.llm import get_chat_provider, get_embedding_provider, get_user_llm_config, get_chat_provider_from_config, get_embedding_provider_from_config, get_provider_info
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -57,10 +57,11 @@ Example: [{{"title": "Schedule meeting with design team", "description": "Discus
 Return ONLY valid JSON, no extra text."""
 
 
-async def extract_tags(title: str, content: str) -> list[str]:
+async def extract_tags(title: str, content: str, provider=None) -> list[str]:
     """Use LLM to extract tags from note content."""
     try:
-        provider = get_chat_provider()
+        if provider is None:
+            provider = get_chat_provider()
         prompt = AUTO_TAG_PROMPT.format(
             title=title,
             content=content[:2000],
@@ -119,9 +120,9 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
     return chunks
 
 
-async def process_note(note_id, content: str, session: AsyncSession):
+async def process_note(note_id, content: str, session: AsyncSession, embedding_provider=None):
     """Chunk a note's content, embed chunks, and store them."""
-    provider = get_embedding_provider()
+    provider = embedding_provider or get_embedding_provider()
 
     # Delete existing chunks for this note
     existing = await session.execute(
@@ -166,12 +167,12 @@ async def process_note(note_id, content: str, session: AsyncSession):
     logger.info(f"Processed note {note_id}: {len(chunks)} chunks created")
 
 
-async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession):
+async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession, chat_provider=None):
     """Auto-tag a note if it has no tags."""
     if existing_tags:
         return
 
-    tags = await extract_tags(title, content)
+    tags = await extract_tags(title, content, provider=chat_provider)
     if tags:
         from sqlalchemy import update
         await session.execute(
@@ -181,7 +182,7 @@ async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, 
         logger.info(f"Auto-tagged note {note_id}: {tags}")
 
 
-async def auto_suggest_todos(note_id, user_id, title: str, content: str, session: AsyncSession):
+async def auto_suggest_todos(note_id, user_id, title: str, content: str, session: AsyncSession, chat_provider=None):
     """Use LLM to extract TODO suggestions from a note."""
     if not content.strip():
         return
@@ -194,7 +195,7 @@ async def auto_suggest_todos(note_id, user_id, title: str, content: str, session
         return  # Already suggested
 
     try:
-        provider = get_chat_provider()
+        provider = chat_provider or get_chat_provider()
         prompt = EXTRACT_TODOS_PROMPT.format(
             title=title,
             content=content[:3000],
@@ -267,9 +268,13 @@ async def run_worker():
 
                 for note in notes:
                     try:
-                        await process_note(note.id, note.content, session)
-                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session)
-                        await auto_suggest_todos(note.id, note.user_id, note.title, note.content, session)
+                        user_cfg = await get_user_llm_config(note.user_id, session)
+                        chat_prov = get_chat_provider_from_config(user_cfg)
+                        embed_prov = get_embedding_provider_from_config(user_cfg)
+                        logger.info(f"Processing note {note.id} with chat={get_provider_info(chat_prov)}, embed={get_provider_info(embed_prov)}")
+                        await process_note(note.id, note.content, session, embedding_provider=embed_prov)
+                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session, chat_provider=chat_prov)
+                        await auto_suggest_todos(note.id, note.user_id, note.title, note.content, session, chat_provider=chat_prov)
                     except Exception as e:
                         logger.error(f"Error processing note {note.id}: {e}")
                         await session.rollback()

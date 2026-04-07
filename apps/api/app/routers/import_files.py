@@ -9,7 +9,7 @@ from sqlalchemy import select
 from app.core.database import get_db
 from app.models import User, Section, Note
 from app.schemas import ImportPlanResponse, ImportFilePreview, ImportConfirmRequest, NoteResponse
-from app.services.llm import get_chat_provider
+from app.services.llm import get_user_llm_config, get_chat_provider_from_config, get_embedding_provider_from_config, get_provider_info
 from app.routers.auth import get_current_user
 from app.routers.sections import slugify
 
@@ -171,10 +171,10 @@ async def upload_files(
         for name, subs in section_map.items()
     ) if section_map else "(none yet)"
 
-    provider = get_chat_provider()
-    from app.services.llm import get_provider_info, get_embedding_provider
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
     chat_info = get_provider_info(provider)
-    embedding_provider = get_embedding_provider()
+    embedding_provider = get_embedding_provider_from_config(user_cfg)
     embedding_info = get_provider_info(embedding_provider)
     logger.info(f"[Import] Chat provider: {chat_info}")
     logger.info(f"[Import] Embedding provider: {embedding_info}")

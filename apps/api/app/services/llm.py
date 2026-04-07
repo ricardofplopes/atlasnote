@@ -214,3 +214,65 @@ def get_provider_info(provider: LLMProvider) -> str:
     elif isinstance(provider, OpenAIProvider):
         return f"OpenAI-compatible (model={provider.chat_model}, base_url={provider.client.base_url})"
     return "Unknown provider"
+
+
+async def get_user_llm_config(user_id, db) -> dict:
+    """Fetch user LLM settings from DB, merged with env defaults."""
+    from app.models import Setting
+    from sqlalchemy import select as sa_select
+
+    result = await db.execute(
+        sa_select(Setting).where(Setting.user_id == user_id)
+    )
+    user_settings = {s.key: s.value for s in result.scalars().all() if s.value}
+
+    env = get_settings()
+    return {
+        "llm_provider": user_settings.get("llm_provider") or env.LLM_PROVIDER,
+        "chat_model": user_settings.get("chat_model") or env.CHAT_MODEL,
+        "openai_api_key": user_settings.get("openai_api_key") or env.OPENAI_API_KEY,
+        "openai_base_url": user_settings.get("openai_base_url") or env.OPENAI_BASE_URL,
+        "azure_openai_endpoint": user_settings.get("azure_openai_endpoint") or env.AZURE_OPENAI_ENDPOINT,
+        "azure_openai_api_key": user_settings.get("azure_openai_api_key") or env.AZURE_OPENAI_API_KEY,
+        "embedding_provider": user_settings.get("embedding_provider") or env.EMBEDDING_PROVIDER or user_settings.get("llm_provider") or env.LLM_PROVIDER,
+        "embedding_model": user_settings.get("embedding_model") or env.EMBEDDING_MODEL,
+        "embedding_openai_api_key": user_settings.get("embedding_openai_api_key") or user_settings.get("openai_api_key") or env.EMBEDDING_OPENAI_API_KEY or env.OPENAI_API_KEY,
+        "embedding_openai_base_url": user_settings.get("embedding_openai_base_url") or user_settings.get("openai_base_url") or env.EMBEDDING_OPENAI_BASE_URL or env.OPENAI_BASE_URL,
+        "ollama_base_url": user_settings.get("ollama_base_url") or env.OLLAMA_BASE_URL,
+    }
+
+
+def get_chat_provider_from_config(cfg: dict) -> LLMProvider:
+    """Build chat provider from a user config dict."""
+    provider_type = cfg["llm_provider"]
+    if provider_type == "ollama":
+        return OllamaProvider(
+            base_url=cfg["ollama_base_url"],
+            chat_model=cfg["chat_model"],
+            embedding_model=cfg["chat_model"],
+        )
+    return OpenAIProvider(
+        api_key=cfg["openai_api_key"],
+        base_url=cfg["openai_base_url"],
+        chat_model=cfg["chat_model"],
+        embedding_model=cfg["chat_model"],
+        azure_endpoint=cfg.get("azure_openai_endpoint", ""),
+        azure_key=cfg.get("azure_openai_api_key", ""),
+    )
+
+
+def get_embedding_provider_from_config(cfg: dict) -> LLMProvider:
+    """Build embedding provider from a user config dict."""
+    provider_type = cfg.get("embedding_provider") or cfg["llm_provider"]
+    if provider_type == "ollama":
+        return OllamaProvider(
+            base_url=cfg["ollama_base_url"],
+            chat_model=cfg["embedding_model"],
+            embedding_model=cfg["embedding_model"],
+        )
+    return OpenAIProvider(
+        api_key=cfg.get("embedding_openai_api_key") or cfg["openai_api_key"],
+        base_url=cfg.get("embedding_openai_base_url") or cfg["openai_base_url"],
+        chat_model=cfg["embedding_model"],
+        embedding_model=cfg["embedding_model"],
+    )

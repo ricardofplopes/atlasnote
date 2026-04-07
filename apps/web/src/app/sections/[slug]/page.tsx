@@ -12,6 +12,7 @@ import {
   reorderNotes,
   listSections,
   moveSection,
+  autoTagNote,
 } from "@/lib/api";
 import {
   DndContext,
@@ -178,7 +179,7 @@ function SectionContent() {
 
   const handleCreateNote = async () => {
     if (!newTitle.trim()) return;
-    await createNote(slug, {
+    const newNote = await createNote(slug, {
       title: newTitle,
       content: newContent,
       tags: newTags
@@ -191,6 +192,10 @@ function SectionContent() {
     setNewTags("");
     setShowNewNote(false);
     load();
+    // Trigger auto-tagging in background (don't block UI)
+    if (newNote?.id) {
+      autoTagNote(newNote.id).catch(() => {});
+    }
   };
 
   const handleCreateSub = async () => {

@@ -277,6 +277,11 @@ export async function getRelatedNotes(noteId: string, limit = 8) {
   return apiFetch(`/api/notes/${noteId}/related?limit=${limit}`);
 }
 
+// Auto-tag
+export async function autoTagNote(noteId: string) {
+  return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" });
+}
+
 // Todos
 export async function listTodos(filter: string = "all") {
   return apiFetch(`/api/todos?filter=${filter}`);

@@ -86,9 +86,9 @@ function WikiContent() {
               color: "var(--foreground)",
             }}
           >
-            <option value="">Select a section...</option>
+            <option value="" style={{ background: "var(--card-bg)", color: "var(--foreground)" }}>Select a section...</option>
             {flatSections(sections).map((s) => (
-              <option key={s.slug} value={s.slug}>
+              <option key={s.slug} value={s.slug} style={{ background: "var(--card-bg)", color: "var(--foreground)" }}>
                 {"  ".repeat(s.depth)}{s.name}
               </option>
             ))}

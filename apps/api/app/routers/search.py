@@ -5,7 +5,7 @@ from sqlalchemy import select, text, func
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import SearchRequest, SearchResponse, ChunkResult
-from app.services.llm import get_embedding_provider
+from app.services.llm import get_embedding_provider, get_user_llm_config, get_embedding_provider_from_config
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -45,10 +45,11 @@ async def _keyword_search(
 
 
 async def _semantic_search(
-    query: str, user_id, filters: list, limit: int, db: AsyncSession
+    query: str, user_id, filters: list, limit: int, db: AsyncSession, provider=None
 ) -> list[dict]:
     """Vector similarity search using pgvector."""
-    provider = get_embedding_provider()
+    if provider is None:
+        provider = get_embedding_provider()
     embeddings = await provider.embed([query])
     query_embedding = embeddings[0]
     embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
@@ -111,6 +112,9 @@ async def search(
     db: AsyncSession = Depends(get_db),
 ):
     """Search across user's notes (hybrid, semantic, or keyword)."""
+    user_cfg = await get_user_llm_config(user.id, db)
+    embed_provider = get_embedding_provider_from_config(user_cfg)
+
     filters = [Note.user_id == user.id, Note.is_deleted == False]
     if data.section_slug:
         section_result = await db.execute(
@@ -131,9 +135,9 @@ async def search(
     if mode == "keyword":
         results_raw = await _keyword_search(data.query, user.id, filters, data.limit, db)
     elif mode == "semantic":
-        results_raw = await _semantic_search(data.query, user.id, filters, data.limit, db)
+        results_raw = await _semantic_search(data.query, user.id, filters, data.limit, db, provider=embed_provider)
     else:  # hybrid
-        sem = await _semantic_search(data.query, user.id, filters, data.limit * 2, db)
+        sem = await _semantic_search(data.query, user.id, filters, data.limit * 2, db, provider=embed_provider)
         kw = await _keyword_search(data.query, user.id, filters, data.limit * 2, db)
         results_raw = _rrf_merge(sem, kw)[:data.limit]
 

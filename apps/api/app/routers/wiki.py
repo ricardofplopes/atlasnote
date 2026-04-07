@@ -7,7 +7,7 @@ from sqlalchemy import select, text
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import WikiGenerateRequest, WikiResponse, WikiCitationResponse
-from app.services.llm import get_chat_provider
+from app.services.llm import get_chat_provider, get_user_llm_config, get_chat_provider_from_config
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -111,7 +111,8 @@ SOURCE MATERIAL:
 
 Write a comprehensive wiki article about "{topic}" using the source material above. Cite sources using [N] notation."""
 
-    provider = get_chat_provider()
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
     messages = [
         {"role": "system", "content": WIKI_SYSTEM_PROMPT},
         {"role": "user", "content": user_content},

@@ -209,7 +209,7 @@ function SettingsContent() {
                     }}
                   >
                     {field.options?.map((opt) => (
-                      <option key={opt} value={opt} style={{ background: "#1a1832", color: "#e2e8f0" }}>
+                      <option key={opt} value={opt} style={{ background: "var(--card-bg)", color: "var(--foreground)" }}>
                         {opt}
                       </option>
                     ))}

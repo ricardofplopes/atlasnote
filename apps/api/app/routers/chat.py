@@ -8,7 +8,7 @@ from sqlalchemy import select, text, func
 from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import ChatRequest, ChatResponse, Citation
-from app.services.llm import get_chat_provider, get_embedding_provider
+from app.services.llm import get_chat_provider, get_embedding_provider, get_user_llm_config, get_chat_provider_from_config, get_embedding_provider_from_config
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -96,9 +96,9 @@ async def _retrieve_chunks(query_embedding, user_id, db, section_slug=None, limi
     return result.all()
 
 
-async def _execute_tool(tool_name: str, args: dict, user_id, db) -> str:
+async def _execute_tool(tool_name: str, args: dict, user_id, db, embed_provider=None) -> str:
     """Execute a tool call and return result as string."""
-    provider = get_embedding_provider()
+    provider = embed_provider or get_embedding_provider()
 
     if tool_name == "search_notes":
         query = args.get("query", "")
@@ -130,8 +130,9 @@ async def grounded_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """Grounded Q&A over user's notes with citations."""
-    chat = get_chat_provider()
-    embed = get_embedding_provider()
+    user_cfg = await get_user_llm_config(user.id, db)
+    chat = get_chat_provider_from_config(user_cfg)
+    embed = get_embedding_provider_from_config(user_cfg)
     embeddings = await embed.embed([data.question])
     query_embedding = embeddings[0]
 
@@ -164,8 +165,9 @@ async def stream_chat(
     db: AsyncSession = Depends(get_db),
 ):
     """Streaming grounded Q&A with agentic tool-calling RAG via SSE."""
-    chat = get_chat_provider()
-    embed = get_embedding_provider()
+    user_cfg = await get_user_llm_config(user.id, db)
+    chat = get_chat_provider_from_config(user_cfg)
+    embed = get_embedding_provider_from_config(user_cfg)
 
     async def event_generator():
         # Step 1: Try agentic approach with tool calling
@@ -206,7 +208,7 @@ async def stream_chat(
 
                 yield f"data: {json.dumps({'type': 'tool_start', 'tool': fn_name, 'args': fn_args})}\n\n"
 
-                tool_result = await _execute_tool(fn_name, fn_args, user.id, db)
+                tool_result = await _execute_tool(fn_name, fn_args, user.id, db, embed_provider=embed)
 
                 yield f"data: {json.dumps({'type': 'tool_complete', 'tool': fn_name})}\n\n"
 
