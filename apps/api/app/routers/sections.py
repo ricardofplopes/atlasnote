@@ -7,7 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models import User, Section
+from app.models import User, Section, Note
 from app.schemas import SectionCreate, SectionUpdate, SectionReorder, SectionMoveRequest, SectionResponse
 from app.routers.auth import get_current_user
 
@@ -179,8 +179,28 @@ async def delete_section(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a section and all its sub-sections and notes."""
+    """Delete a section and all its sub-sections. Notes are soft-deleted."""
     section = await _get_section_by_slug(slug, user.id, db)
+
+    # Collect all section IDs (this section + descendants)
+    section_ids = []
+
+    async def collect_ids(s):
+        section_ids.append(s.id)
+        for child in (s.children or []):
+            await collect_ids(child)
+
+    await collect_ids(section)
+
+    # Soft-delete all notes in these sections
+    from sqlalchemy import update
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(Note)
+        .where(Note.section_id.in_(section_ids), Note.is_deleted == False)
+        .values(is_deleted=True, deleted_at=now)
+    )
+
     await db.delete(section)
 
 

@@ -93,7 +93,7 @@ class NoteReorderRequest(BaseModel):
 
 class NoteResponse(BaseModel):
     id: uuid.UUID
-    section_id: uuid.UUID
+    section_id: uuid.UUID | None
     title: str
     content: str
     tags: list[str]
