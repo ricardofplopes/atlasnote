@@ -13,7 +13,9 @@ import {
   listSections,
   moveSection,
   autoTagNote,
+  formatContent,
 } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
 import {
   DndContext,
   closestCenter,
@@ -149,6 +151,8 @@ function SectionContent() {
   const [newSubName, setNewSubName] = useState("");
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const [showMdHelp, setShowMdHelp] = useState(false);
+  const [formatting, setFormatting] = useState(false);
+  const [formatPreview, setFormatPreview] = useState<string | null>(null);
 
   const [showMove, setShowMove] = useState(false);
   const [allSections, setAllSections] = useState<Section[]>([]);
@@ -552,6 +556,28 @@ function SectionContent() {
             ))}
             <div className="flex-1" />
             <button
+              onClick={async () => {
+                if (!newContent.trim()) return;
+                setFormatting(true);
+                try {
+                  const res = await formatContent(newTitle || "Untitled", newContent);
+                  setFormatPreview(res.formatted_content);
+                } catch (e) {
+                  console.error("Format failed:", e);
+                } finally {
+                  setFormatting(false);
+                }
+              }}
+              disabled={formatting || !newContent.trim()}
+              className="px-2.5 py-1 text-xs font-medium rounded transition-colors disabled:opacity-40"
+              style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+              onMouseEnter={(e) => { if (!formatting) e.currentTarget.style.background = "rgba(122,92,255,0.25)"; }}
+              onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
+              type="button"
+            >
+              {formatting ? "Formatting..." : "✨ Format with AI"}
+            </button>
+            <button
               onClick={() => setShowMdHelp(!showMdHelp)}
               title="Markdown Help"
               className="px-2 py-1 text-xs rounded transition-colors"
@@ -594,6 +620,37 @@ function SectionContent() {
               ["--tw-ring-color" as string]: "var(--accent)",
             }}
           />
+
+          {formatPreview !== null && (
+            <div className="p-4 rounded-xl space-y-3" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium" style={{ color: "#a78bfa" }}>✨ AI Formatted Preview</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setNewContent(formatPreview);
+                      setFormatPreview(null);
+                    }}
+                    className="px-3 py-1 text-xs font-semibold rounded-lg text-white"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => setFormatPreview(null)}
+                    className="px-3 py-1 text-xs font-medium rounded-lg"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg prose prose-invert prose-sm max-w-none text-sm" style={{ background: "rgba(0,0,0,0.2)" }}>
+                <ReactMarkdown>{formatPreview}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+
           <input
             value={newTags}
             onChange={(e) => setNewTags(e.target.value)}

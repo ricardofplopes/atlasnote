@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
@@ -13,8 +13,9 @@ const atlasNoteTheme = EditorView.theme({
     color: "rgba(255,255,255,0.9)",
     fontSize: "14px",
     fontFamily: "Inter, system-ui, sans-serif",
-    borderRadius: "12px",
+    borderRadius: "0 0 12px 12px",
     border: "1px solid rgba(255,255,255,0.06)",
+    borderTop: "none",
   },
   ".cm-content": {
     padding: "16px",
@@ -74,13 +75,30 @@ interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  showToolbar?: boolean;
+  onFormatAI?: () => void;
+  formattingAI?: boolean;
 }
 
-export function MarkdownEditor({ value, onChange, placeholder }: MarkdownEditorProps) {
+const TOOLBAR_BUTTONS = [
+  { label: "B", title: "Bold", before: "**", after: "**" },
+  { label: "I", title: "Italic", before: "*", after: "*" },
+  { label: "H", title: "Heading", before: "## ", after: "" },
+  { label: "•", title: "Bullet List", before: "- ", after: "" },
+  { label: "1.", title: "Ordered List", before: "1. ", after: "" },
+  { label: "<>", title: "Code", before: "`", after: "`" },
+  { label: "🔗", title: "Link", before: "[", after: "](url)" },
+  { label: "❝", title: "Quote", before: "> ", after: "" },
+  { label: "—", title: "Horizontal Rule", before: "\n---\n", after: "" },
+];
+
+export function MarkdownEditor({ value, onChange, placeholder, showToolbar = true, onFormatAI, formattingAI }: MarkdownEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+
+  const [showMdHelp, setShowMdHelp] = useState(false);
 
   // Sync external value changes
   const isInternalChange = useRef(false);
@@ -133,5 +151,107 @@ export function MarkdownEditor({ value, onChange, placeholder }: MarkdownEditorP
     }
   }, [value]);
 
-  return <div ref={containerRef} className="markdown-editor" />;
+  const insertMarkdown = useCallback((before: string, after: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const { from, to } = view.state.selection.main;
+    const selected = view.state.sliceDoc(from, to);
+    const insert = `${before}${selected || "text"}${after}`;
+
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: from + before.length, head: from + before.length + (selected || "text").length },
+    });
+    view.focus();
+  }, []);
+
+  return (
+    <div className="markdown-editor">
+      {showToolbar && (
+        <>
+          <div
+            className="flex items-center gap-1 flex-wrap px-3 py-2"
+            style={{
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderBottom: "none",
+              borderRadius: "12px 12px 0 0",
+            }}
+          >
+            {TOOLBAR_BUTTONS.map((btn) => (
+              <button
+                key={btn.title}
+                onClick={() => insertMarkdown(btn.before, btn.after)}
+                title={btn.title}
+                className="px-2 py-1 text-xs font-mono rounded transition-colors"
+                style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.04)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+                  e.currentTarget.style.color = "var(--foreground)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
+                type="button"
+              >
+                {btn.label}
+              </button>
+            ))}
+
+            <div className="flex-1" />
+
+            {onFormatAI && (
+              <button
+                onClick={onFormatAI}
+                disabled={formattingAI}
+                className="px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+                onMouseEnter={(e) => { if (!formattingAI) e.currentTarget.style.background = "rgba(122,92,255,0.25)"; }}
+                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
+                type="button"
+              >
+                {formattingAI ? "Formatting..." : "✨ Format with AI"}
+              </button>
+            )}
+
+            <button
+              onClick={() => setShowMdHelp(!showMdHelp)}
+              title="Markdown Help"
+              className="px-2 py-1 text-xs rounded transition-colors"
+              style={{ color: "var(--text-muted)" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+              type="button"
+            >
+              ?
+            </button>
+          </div>
+
+          {showMdHelp && (
+            <div
+              className="px-3 py-2 text-xs font-mono space-y-1"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderTop: "none",
+                borderBottom: "none",
+                color: "var(--text-secondary)",
+              }}
+            >
+              <div><strong style={{ color: "var(--foreground)" }}>Markdown Cheat Sheet</strong></div>
+              <div># Heading 1 &nbsp;&nbsp; ## Heading 2 &nbsp;&nbsp; ### Heading 3</div>
+              <div>**bold** &nbsp;&nbsp; *italic* &nbsp;&nbsp; ~~strikethrough~~</div>
+              <div>- bullet list &nbsp;&nbsp; 1. numbered list</div>
+              <div>`inline code` &nbsp;&nbsp; ```code block```</div>
+              <div>[link text](url) &nbsp;&nbsp; ![image](url)</div>
+              <div>&gt; blockquote &nbsp;&nbsp; --- horizontal rule</div>
+            </div>
+          )}
+        </>
+      )}
+      <div ref={containerRef} />
+    </div>
+  );
 }

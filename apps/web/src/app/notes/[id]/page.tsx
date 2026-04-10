@@ -291,28 +291,19 @@ function NoteContent() {
             value={content}
             onChange={setContent}
             placeholder="Write your note in markdown..."
+            onFormatAI={async () => {
+              setFormatting(true);
+              try {
+                const res = await formatNoteMarkdown(noteId);
+                setFormatPreview(res.formatted_content);
+              } catch (e) {
+                console.error("Format failed:", e);
+              } finally {
+                setFormatting(false);
+              }
+            }}
+            formattingAI={formatting}
           />
-          <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                setFormatting(true);
-                try {
-                  const res = await formatNoteMarkdown(noteId);
-                  setFormatPreview(res.formatted_content);
-                } catch (e) {
-                  console.error("Format failed:", e);
-                } finally {
-                  setFormatting(false);
-                }
-              }}
-              disabled={formatting}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-              style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
-              type="button"
-            >
-              {formatting ? "Formatting..." : "✨ Format with AI"}
-            </button>
-          </div>
           {formatPreview !== null && (
             <div className="p-4 rounded-xl space-y-3" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
               <div className="flex items-center justify-between">

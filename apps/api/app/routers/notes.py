@@ -159,6 +159,66 @@ async def reorder_notes(
     return updated
 
 
+FORMAT_MARKDOWN_PROMPT = """Reformat the following note content into clean, well-structured markdown.
+
+CRITICAL RULES:
+1. Keep ALL original information intact — do not add, remove, or change any facts
+2. Preserve bullet points as markdown list items using "- " prefix
+3. Preserve nested/indented items as nested lists (indent with 2 spaces + "- ")
+4. Keep all URLs exactly as they appear — do not modify, shorten, or rewrite URLs
+5. Use ## headings to separate logical sections
+6. Use **bold** for emphasis on key terms, project names, or important items
+7. If content has a date-like pattern, keep it in the title/heading area
+8. If content already uses markdown formatting, keep it and make minor improvements only
+9. Do NOT flatten list structures — if items are listed, keep them as a list
+
+Title: {title}
+
+Content:
+{content}
+
+Return ONLY the reformatted markdown content, nothing else."""
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove wrapping code fences the LLM might add."""
+    text = text.strip()
+    if text.startswith("```markdown"):
+        text = text[len("```markdown"):].strip()
+    if text.startswith("```"):
+        text = text[3:].strip()
+    if text.endswith("```"):
+        text = text[:-3].strip()
+    return text
+
+
+@router.post("/format-content")
+async def format_content(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Format raw content with AI (no saved note required)."""
+    title = body.get("title", "Untitled")
+    content = body.get("content", "")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="No content to format")
+
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
+
+    prompt = FORMAT_MARKDOWN_PROMPT.format(title=title, content=content)
+    try:
+        formatted = await provider.chat([
+            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content. Preserve list structures and URLs exactly."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+        return {"formatted_content": _strip_code_fences(formatted)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Formatting failed: {str(e)}")
+
+
 @router.post("/{note_id}/format-markdown")
 async def format_markdown(
     note_id: uuid.UUID,
@@ -177,34 +237,13 @@ async def format_markdown(
     user_cfg = await get_user_llm_config(user.id, db)
     provider = get_chat_provider_from_config(user_cfg)
 
-    prompt = f"""Reformat the following note content into clean, well-structured markdown. 
-Keep all the original information intact — do not add, remove, or change any facts.
-Use appropriate markdown formatting: headings, lists, bold, code blocks, etc. as needed.
-If the content is already in good markdown format, return it as-is with minor improvements.
-
-Title: {note.title}
-
-Content:
-{note.content}
-
-Return ONLY the reformatted markdown content, nothing else."""
-
+    prompt = FORMAT_MARKDOWN_PROMPT.format(title=note.title, content=note.content)
     try:
         formatted = await provider.chat([
-            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content."},
+            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content. Preserve list structures and URLs exactly."},
             {"role": "user", "content": prompt},
         ], temperature=0.1)
-
-        # Strip any wrapping code fences the LLM might add
-        formatted = formatted.strip()
-        if formatted.startswith("```markdown"):
-            formatted = formatted[len("```markdown"):].strip()
-        if formatted.startswith("```"):
-            formatted = formatted[3:].strip()
-        if formatted.endswith("```"):
-            formatted = formatted[:-3].strip()
-
-        return {"formatted_content": formatted}
+        return {"formatted_content": _strip_code_fences(formatted)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Formatting failed: {str(e)}")
 

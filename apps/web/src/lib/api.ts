@@ -294,6 +294,13 @@ export async function formatNoteMarkdown(noteId: string) {
   return apiFetch(`/api/notes/${noteId}/format-markdown`, { method: "POST" });
 }
 
+export async function formatContent(title: string, content: string) {
+  return apiFetch("/api/notes/format-content", {
+    method: "POST",
+    body: JSON.stringify({ title, content }),
+  });
+}
+
 // Auto-tag
 export async function autoTagNote(noteId: string) {
   return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" });
