@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -147,6 +147,8 @@ function SectionContent() {
   const [newTags, setNewTags] = useState("");
   const [showNewSub, setShowNewSub] = useState(false);
   const [newSubName, setNewSubName] = useState("");
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const [showMdHelp, setShowMdHelp] = useState(false);
 
   const [showMove, setShowMove] = useState(false);
   const [allSections, setAllSections] = useState<Section[]>([]);
@@ -204,11 +206,13 @@ function SectionContent() {
     setNewSubName("");
     setShowNewSub(false);
     load();
+    window.dispatchEvent(new Event("sections:refresh"));
   };
 
   const handleDelete = async () => {
     if (!confirm("Delete this section and all its notes?")) return;
     await deleteSection(slug);
+    window.dispatchEvent(new Event("sections:refresh"));
     router.push("/");
   };
 
@@ -297,6 +301,21 @@ function SectionContent() {
     return "";
   };
 
+  const insertMarkdown = (before: string, after: string = "") => {
+    const ta = contentRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = newContent.substring(start, end);
+    const replacement = before + (selected || "text") + after;
+    const updated = newContent.substring(0, start) + replacement + newContent.substring(end);
+    setNewContent(updated);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(start + before.length, start + before.length + (selected || "text").length);
+    }, 0);
+  };
+
   if (error)
     return (
       <div style={{ color: "var(--text-muted)" }}>
@@ -318,46 +337,59 @@ function SectionContent() {
           )}
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => {
-              const next = !showNewNote;
-              setShowNewNote(next);
-              if (next) {
-                setNewTitle(suggestTitle());
-              }
-            }}
-            className="px-3 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition"
-            style={{ background: "var(--accent)" }}
-          >
-            + Note
-          </button>
-          <button
-            onClick={() => setShowNewSub(!showNewSub)}
-            className="px-3 py-1.5 text-sm font-semibold rounded-lg transition"
-            style={{
-              background: "rgba(255,255,255,0.06)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            + Sub-section
-          </button>
-          <button
-            onClick={async () => {
-              const secs = await listSections();
-              setAllSections(secs);
-              setShowMove(!showMove);
-            }}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg transition"
-            style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
-          >
-            Move
-          </button>
-          <button
-            onClick={handleDelete}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg transition text-red-400 hover:bg-red-400/10"
-          >
-            Delete
-          </button>
+          {showNewNote ? (
+            <button
+              onClick={() => {
+                setShowNewNote(false);
+                setNewTitle("");
+                setNewContent("");
+                setNewTags("");
+              }}
+              className="px-3 py-1.5 text-sm font-medium rounded-lg transition text-red-400 hover:bg-red-400/10"
+            >
+              Cancel
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => {
+                  setShowNewNote(true);
+                  setNewTitle(suggestTitle());
+                }}
+                className="px-3 py-1.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 transition"
+                style={{ background: "var(--accent)" }}
+              >
+                + Note
+              </button>
+              <button
+                onClick={() => setShowNewSub(!showNewSub)}
+                className="px-3 py-1.5 text-sm font-semibold rounded-lg transition"
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                + Sub-section
+              </button>
+              <button
+                onClick={async () => {
+                  const secs = await listSections();
+                  setAllSections(secs);
+                  setShowMove(!showMove);
+                }}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg transition"
+                style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
+              >
+                Move
+              </button>
+              <button
+                onClick={handleDelete}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg transition text-red-400 hover:bg-red-400/10"
+              >
+                Delete
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -485,11 +517,75 @@ function SectionContent() {
             }}
             autoFocus
           />
+
+          {/* Markdown toolbar */}
+          <div className="flex items-center gap-1 flex-wrap" style={{ borderBottom: "1px solid var(--card-border)", paddingBottom: "8px" }}>
+            {[
+              { label: "B", title: "Bold", action: () => insertMarkdown("**", "**") },
+              { label: "I", title: "Italic", action: () => insertMarkdown("*", "*") },
+              { label: "H", title: "Heading", action: () => insertMarkdown("## ", "") },
+              { label: "•", title: "Bullet List", action: () => insertMarkdown("- ", "") },
+              { label: "1.", title: "Ordered List", action: () => insertMarkdown("1. ", "") },
+              { label: "<>", title: "Code", action: () => insertMarkdown("`", "`") },
+              { label: "🔗", title: "Link", action: () => insertMarkdown("[", "](url)") },
+              { label: "❝", title: "Quote", action: () => insertMarkdown("> ", "") },
+              { label: "—", title: "Horizontal Rule", action: () => insertMarkdown("\n---\n", "") },
+            ].map((btn) => (
+              <button
+                key={btn.title}
+                onClick={btn.action}
+                title={btn.title}
+                className="px-2 py-1 text-xs font-mono rounded transition-colors"
+                style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.04)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.1)";
+                  e.currentTarget.style.color = "var(--foreground)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                  e.currentTarget.style.color = "var(--text-secondary)";
+                }}
+                type="button"
+              >
+                {btn.label}
+              </button>
+            ))}
+            <div className="flex-1" />
+            <button
+              onClick={() => setShowMdHelp(!showMdHelp)}
+              title="Markdown Help"
+              className="px-2 py-1 text-xs rounded transition-colors"
+              style={{ color: "var(--text-muted)" }}
+              onMouseEnter={(e) => e.currentTarget.style.color = "var(--foreground)"}
+              onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+              type="button"
+            >
+              ?
+            </button>
+          </div>
+
+          {showMdHelp && (
+            <div
+              className="p-3 rounded-lg text-xs font-mono space-y-1"
+              style={{ background: "rgba(255,255,255,0.04)", color: "var(--text-secondary)" }}
+            >
+              <div><strong style={{ color: "var(--foreground)" }}>Markdown Cheat Sheet</strong></div>
+              <div># Heading 1 &nbsp;&nbsp; ## Heading 2 &nbsp;&nbsp; ### Heading 3</div>
+              <div>**bold** &nbsp;&nbsp; *italic* &nbsp;&nbsp; ~~strikethrough~~</div>
+              <div>- bullet list &nbsp;&nbsp; 1. numbered list</div>
+              <div>`inline code` &nbsp;&nbsp; ```code block```</div>
+              <div>[link text](url) &nbsp;&nbsp; ![image](url)</div>
+              <div>&gt; blockquote &nbsp;&nbsp; --- horizontal rule</div>
+              <div>| Col 1 | Col 2 | &nbsp;&nbsp; (tables)</div>
+            </div>
+          )}
+
           <textarea
+            ref={contentRef}
             value={newContent}
             onChange={(e) => setNewContent(e.target.value)}
-            placeholder="Note content (markdown)"
-            rows={6}
+            placeholder="Write your note in markdown..."
+            rows={8}
             className="w-full px-3 py-2 rounded-lg focus:outline-none focus:ring-2 font-mono text-sm"
             style={{
               background: "rgba(255,255,255,0.06)",

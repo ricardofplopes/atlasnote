@@ -277,6 +277,11 @@ export async function getRelatedNotes(noteId: string, limit = 8) {
   return apiFetch(`/api/notes/${noteId}/related?limit=${limit}`);
 }
 
+// Format markdown
+export async function formatNoteMarkdown(noteId: string) {
+  return apiFetch(`/api/notes/${noteId}/format-markdown`, { method: "POST" });
+}
+
 // Auto-tag
 export async function autoTagNote(noteId: string) {
   return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" });

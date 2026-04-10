@@ -11,6 +11,8 @@ import {
   listVersions,
   restoreVersion,
   getRelatedNotes,
+  formatNoteMarkdown,
+  autoTagNote,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import dynamic from "next/dynamic";
@@ -161,6 +163,10 @@ function NoteContent() {
   const [sourceUrl, setSourceUrl] = useState("");
   const [versions, setVersions] = useState<Version[]>([]);
   const [showVersions, setShowVersions] = useState(false);
+  const [formatPreview, setFormatPreview] = useState<string | null>(null);
+  const [formatting, setFormatting] = useState(false);
+  const [tagging, setTagging] = useState(false);
+  const [suggestedTags, setSuggestedTags] = useState<string[] | null>(null);
 
   const load = () => {
     getNote(noteId).then((n) => {
@@ -286,17 +292,131 @@ function NoteContent() {
             onChange={setContent}
             placeholder="Write your note in markdown..."
           />
-          <input
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            placeholder="Tags (comma separated)"
-            className="w-full px-3 py-2 rounded-xl focus:outline-none focus:ring-2"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-            }}
-          />
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                setFormatting(true);
+                try {
+                  const res = await formatNoteMarkdown(noteId);
+                  setFormatPreview(res.formatted_content);
+                } catch (e) {
+                  console.error("Format failed:", e);
+                } finally {
+                  setFormatting(false);
+                }
+              }}
+              disabled={formatting}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+              style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+              type="button"
+            >
+              {formatting ? "Formatting..." : "✨ Format with AI"}
+            </button>
+          </div>
+          {formatPreview !== null && (
+            <div className="p-4 rounded-xl space-y-3" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium" style={{ color: "#a78bfa" }}>✨ AI Formatted Preview</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setContent(formatPreview);
+                      setFormatPreview(null);
+                    }}
+                    className="px-3 py-1 text-xs font-semibold rounded-lg text-white"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => setFormatPreview(null)}
+                    className="px-3 py-1 text-xs font-medium rounded-lg"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg prose prose-invert prose-sm max-w-none text-sm" style={{ background: "rgba(0,0,0,0.2)" }}>
+                <ReactMarkdown>{formatPreview}</ReactMarkdown>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              value={tags}
+              onChange={(e) => setTags(e.target.value)}
+              placeholder="Tags (comma separated)"
+              className="flex-1 px-3 py-2 rounded-xl focus:outline-none focus:ring-2"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid var(--card-border)',
+                color: 'var(--foreground)',
+              }}
+            />
+            <button
+              onClick={async () => {
+                setTagging(true);
+                try {
+                  const res = await autoTagNote(noteId);
+                  if (res?.tags && res.tags.length > 0) {
+                    setSuggestedTags(res.tags);
+                  }
+                } catch (e) {
+                  console.error("Tag suggestion failed:", e);
+                } finally {
+                  setTagging(false);
+                }
+              }}
+              disabled={tagging}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+              style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+              type="button"
+            >
+              {tagging ? "..." : "✨ Suggest Tags"}
+            </button>
+          </div>
+          {suggestedTags && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>Suggested:</span>
+              {suggestedTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => {
+                    const currentTags = tags.split(",").map(t => t.trim()).filter(Boolean);
+                    if (!currentTags.includes(tag)) {
+                      setTags(currentTags.length > 0 ? `${tags}, ${tag}` : tag);
+                    }
+                  }}
+                  className="text-xs px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                  style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.3)"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
+                >
+                  + {tag}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  const currentTags = tags.split(",").map(t => t.trim()).filter(Boolean);
+                  const merged = [...new Set([...currentTags, ...suggestedTags])];
+                  setTags(merged.join(", "));
+                  setSuggestedTags(null);
+                }}
+                className="text-xs px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80" }}
+              >
+                Accept all
+              </button>
+              <button
+                onClick={() => setSuggestedTags(null)}
+                className="text-xs px-2 py-0.5"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <input
             value={sourceUrl}
             onChange={(e) => setSourceUrl(e.target.value)}

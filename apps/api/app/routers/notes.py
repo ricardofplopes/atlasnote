@@ -159,6 +159,56 @@ async def reorder_notes(
     return updated
 
 
+@router.post("/{note_id}/format-markdown")
+async def format_markdown(
+    note_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LLM to reformat note content into proper markdown."""
+    result = await db.execute(
+        select(Note).where(Note.id == note_id, Note.user_id == user.id)
+    )
+    note = result.scalar_one_or_none()
+    if note is None:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
+
+    prompt = f"""Reformat the following note content into clean, well-structured markdown. 
+Keep all the original information intact — do not add, remove, or change any facts.
+Use appropriate markdown formatting: headings, lists, bold, code blocks, etc. as needed.
+If the content is already in good markdown format, return it as-is with minor improvements.
+
+Title: {note.title}
+
+Content:
+{note.content}
+
+Return ONLY the reformatted markdown content, nothing else."""
+
+    try:
+        formatted = await provider.chat([
+            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+
+        # Strip any wrapping code fences the LLM might add
+        formatted = formatted.strip()
+        if formatted.startswith("```markdown"):
+            formatted = formatted[len("```markdown"):].strip()
+        if formatted.startswith("```"):
+            formatted = formatted[3:].strip()
+        if formatted.endswith("```"):
+            formatted = formatted[:-3].strip()
+
+        return {"formatted_content": formatted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Formatting failed: {str(e)}")
+
+
 @router.post("/{note_id}/auto-tag")
 async def auto_tag_note_endpoint(
     note_id: uuid.UUID,

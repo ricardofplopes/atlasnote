@@ -131,7 +131,13 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
     if (user) loadSections();
   }, [user]);
 
-  const handleCreate = async () => {
+  useEffect(() => {
+    const handleRefresh = () => loadSections();
+    window.addEventListener("sections:refresh", handleRefresh);
+    return () => window.removeEventListener("sections:refresh", handleRefresh);
+  }, []);
+
+  const handleCreate= async () => {
     if (!newSection.trim()) return;
     await createSection({ name: newSection });
     setNewSection("");
