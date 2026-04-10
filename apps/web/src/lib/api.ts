@@ -227,6 +227,18 @@ export async function updateSettings(items: { key: string; value: string | null 
   });
 }
 
+export async function testLlmConnection() {
+  return apiFetch("/api/settings/test-connection", { method: "POST" });
+}
+
+export async function getLlmLogs(limit = 100) {
+  return apiFetch(`/api/settings/logs?limit=${limit}`);
+}
+
+export async function clearLlmLogs() {
+  return apiFetch("/api/settings/logs", { method: "DELETE" });
+}
+
 // Import
 export async function uploadFilesForImport(files: File[]) {
   const token =

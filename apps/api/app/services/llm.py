@@ -6,12 +6,41 @@ Supports independent configuration for chat and embeddings:
   - get_llm_provider()        → legacy, returns chat provider (has embed too)
 """
 import logging
+import time
 from abc import ABC, abstractmethod
+from collections import deque
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 from openai import AsyncOpenAI
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# In-memory ring buffer for LLM activity logs (last 200 entries)
+_llm_logs: deque = deque(maxlen=200)
+
+
+def add_llm_log(provider: str, operation: str, model: str, status: str, duration_ms: int = 0, detail: str = ""):
+    """Add an entry to the in-memory LLM activity log."""
+    _llm_logs.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+        "operation": operation,
+        "model": model,
+        "status": status,
+        "duration_ms": duration_ms,
+        "detail": detail,
+    })
+
+
+def get_llm_logs(limit: int = 100) -> list[dict]:
+    """Return recent LLM activity logs, newest first."""
+    return list(reversed(list(_llm_logs)))[:limit]
+
+
+def clear_llm_logs():
+    """Clear all LLM activity logs."""
+    _llm_logs.clear()
 
 
 class LLMProvider(ABC):
@@ -55,29 +84,52 @@ class OpenAIProvider(LLMProvider):
         self.client = _build_openai_client(api_key, base_url, azure_endpoint, azure_key)
         self.chat_model = chat_model
         self.embedding_model = embedding_model
+        self._provider_label = "Azure OpenAI" if azure_endpoint else f"OpenAI-compat ({base_url or 'api.openai.com'})"
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = await self.client.embeddings.create(input=texts, model=self.embedding_model)
-        return [item.embedding for item in resp.data]
+        t0 = time.time()
+        try:
+            resp = await self.client.embeddings.create(input=texts, model=self.embedding_model)
+            add_llm_log(self._provider_label, "embed", self.embedding_model, "ok", int((time.time() - t0) * 1000), f"{len(texts)} texts")
+            return [item.embedding for item in resp.data]
+        except Exception as e:
+            add_llm_log(self._provider_label, "embed", self.embedding_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat(self, messages: list[dict], temperature: float = 0.3) -> str:
-        resp = await self.client.chat.completions.create(
-            model=self.chat_model, messages=messages, temperature=temperature
-        )
-        return resp.choices[0].message.content or ""
+        t0 = time.time()
+        try:
+            resp = await self.client.chat.completions.create(
+                model=self.chat_model, messages=messages, temperature=temperature
+            )
+            content = resp.choices[0].message.content or ""
+            add_llm_log(self._provider_label, "chat", self.chat_model, "ok", int((time.time() - t0) * 1000), f"{len(content)} chars")
+            return content
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat_stream(self, messages: list[dict], temperature: float = 0.3) -> AsyncGenerator[str, None]:
-        stream = await self.client.chat.completions.create(
-            model=self.chat_model, messages=messages, temperature=temperature, stream=True
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
+        t0 = time.time()
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.chat_model, messages=messages, temperature=temperature, stream=True
+            )
+            total_chars = 0
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    total_chars += len(delta.content)
+                    yield delta.content
+            add_llm_log(self._provider_label, "chat_stream", self.chat_model, "ok", int((time.time() - t0) * 1000), f"{total_chars} chars")
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat_stream", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat_with_tools(
         self, messages: list[dict], tools: list[dict], temperature: float = 0.3
     ) -> dict:
+        t0 = time.time()
         try:
             resp = await self.client.chat.completions.create(
                 model=self.chat_model, messages=messages,
@@ -93,12 +145,18 @@ class OpenAIProvider(LLMProvider):
                     }
                     for tc in msg.tool_calls
                 ]
+            add_llm_log(self._provider_label, "chat_with_tools", self.chat_model, "ok", int((time.time() - t0) * 1000), f"tools={len(tools)}")
             return result
-        except Exception:
-            resp = await self.client.chat.completions.create(
-                model=self.chat_model, messages=messages, temperature=temperature
-            )
-            return {"content": resp.choices[0].message.content or ""}
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat_with_tools", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            # Fallback without tools
+            try:
+                resp = await self.client.chat.completions.create(
+                    model=self.chat_model, messages=messages, temperature=temperature
+                )
+                return {"content": resp.choices[0].message.content or ""}
+            except Exception:
+                raise
 
 
 class OllamaProvider(LLMProvider):
@@ -109,29 +167,59 @@ class OllamaProvider(LLMProvider):
         )
         self.chat_model = chat_model
         self.embedding_model = embedding_model
+        self._provider_label = f"Ollama ({base_url})"
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        resp = await self.client.embeddings.create(input=texts, model=self.embedding_model)
-        return [item.embedding for item in resp.data]
+        t0 = time.time()
+        try:
+            resp = await self.client.embeddings.create(input=texts, model=self.embedding_model)
+            results = []
+            for item in resp.data:
+                vec = item.embedding
+                if isinstance(vec, str):
+                    import json as _json
+                    vec = _json.loads(vec)
+                results.append([float(v) for v in vec])
+            add_llm_log(self._provider_label, "embed", self.embedding_model, "ok", int((time.time() - t0) * 1000), f"{len(texts)} texts")
+            return results
+        except Exception as e:
+            add_llm_log(self._provider_label, "embed", self.embedding_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat(self, messages: list[dict], temperature: float = 0.3) -> str:
-        resp = await self.client.chat.completions.create(
-            model=self.chat_model, messages=messages, temperature=temperature
-        )
-        return resp.choices[0].message.content or ""
+        t0 = time.time()
+        try:
+            resp = await self.client.chat.completions.create(
+                model=self.chat_model, messages=messages, temperature=temperature
+            )
+            content = resp.choices[0].message.content or ""
+            add_llm_log(self._provider_label, "chat", self.chat_model, "ok", int((time.time() - t0) * 1000), f"{len(content)} chars")
+            return content
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat_stream(self, messages: list[dict], temperature: float = 0.3) -> AsyncGenerator[str, None]:
-        stream = await self.client.chat.completions.create(
-            model=self.chat_model, messages=messages, temperature=temperature, stream=True
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta and delta.content:
-                yield delta.content
+        t0 = time.time()
+        try:
+            stream = await self.client.chat.completions.create(
+                model=self.chat_model, messages=messages, temperature=temperature, stream=True
+            )
+            total_chars = 0
+            async for chunk in stream:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta and delta.content:
+                    total_chars += len(delta.content)
+                    yield delta.content
+            add_llm_log(self._provider_label, "chat_stream", self.chat_model, "ok", int((time.time() - t0) * 1000), f"{total_chars} chars")
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat_stream", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            raise
 
     async def chat_with_tools(
         self, messages: list[dict], tools: list[dict], temperature: float = 0.3
     ) -> dict:
+        t0 = time.time()
         try:
             resp = await self.client.chat.completions.create(
                 model=self.chat_model, messages=messages,
@@ -147,12 +235,17 @@ class OllamaProvider(LLMProvider):
                     }
                     for tc in msg.tool_calls
                 ]
+            add_llm_log(self._provider_label, "chat_with_tools", self.chat_model, "ok", int((time.time() - t0) * 1000), f"tools={len(tools)}")
             return result
-        except Exception:
-            resp = await self.client.chat.completions.create(
-                model=self.chat_model, messages=messages, temperature=temperature
-            )
-            return {"content": resp.choices[0].message.content or ""}
+        except Exception as e:
+            add_llm_log(self._provider_label, "chat_with_tools", self.chat_model, "error", int((time.time() - t0) * 1000), str(e)[:300])
+            try:
+                resp = await self.client.chat.completions.create(
+                    model=self.chat_model, messages=messages, temperature=temperature
+                )
+                return {"content": resp.choices[0].message.content or ""}
+            except Exception:
+                raise
 
 
 def _make_provider(provider_type: str, settings, api_key: str, base_url: str, model: str, is_embedding: bool = False) -> LLMProvider:
