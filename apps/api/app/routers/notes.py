@@ -159,25 +159,24 @@ async def reorder_notes(
     return updated
 
 
-FORMAT_MARKDOWN_PROMPT = """Reformat the following note content into clean, well-structured markdown.
+FORMAT_SYSTEM_PROMPT = """You are a markdown formatting assistant. Your ONLY job is to take raw note content and return it as clean, well-structured markdown.
 
-CRITICAL RULES:
-1. Keep ALL original information intact — do not add, remove, or change any facts
-2. Preserve bullet points as markdown list items using "- " prefix
-3. Preserve nested/indented items as nested lists (indent with 2 spaces + "- ")
-4. Keep all URLs exactly as they appear — do not modify, shorten, or rewrite URLs
-5. Use ## headings to separate logical sections
-6. Use **bold** for emphasis on key terms, project names, or important items
-7. If content has a date-like pattern, keep it in the title/heading area
-8. If content already uses markdown formatting, keep it and make minor improvements only
-9. Do NOT flatten list structures — if items are listed, keep them as a list
+Rules:
+- Keep ALL original information intact — do not add, remove, or change any facts
+- Convert items separated by " - " on a single line into separate bullet points (each on its own line using "- ")
+- Preserve and enhance existing bullet lists
+- Preserve nested/indented items as nested lists
+- Keep all URLs exactly as they appear — do not modify, shorten, or rewrite URLs
+- Use ## headings to separate logical sections when appropriate
+- Use **bold** for emphasis on key terms or project names
+- Do NOT include any instructions, commentary, or preamble — return ONLY the formatted note content"""
+
+FORMAT_MARKDOWN_PROMPT = """Reformat this note into clean markdown.
 
 Title: {title}
 
 Content:
-{content}
-
-Return ONLY the reformatted markdown content, nothing else."""
+{content}"""
 
 
 def _strip_code_fences(text: str) -> str:
@@ -211,7 +210,7 @@ async def format_content(
     prompt = FORMAT_MARKDOWN_PROMPT.format(title=title, content=content)
     try:
         formatted = await provider.chat([
-            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content. Preserve list structures and URLs exactly."},
+            {"role": "system", "content": FORMAT_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ], temperature=0.1)
         return {"formatted_content": _strip_code_fences(formatted)}
@@ -240,7 +239,7 @@ async def format_markdown(
     prompt = FORMAT_MARKDOWN_PROMPT.format(title=note.title, content=note.content)
     try:
         formatted = await provider.chat([
-            {"role": "system", "content": "You are a markdown formatting assistant. Return only the formatted content. Preserve list structures and URLs exactly."},
+            {"role": "system", "content": FORMAT_SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ], temperature=0.1)
         return {"formatted_content": _strip_code_fences(formatted)}
