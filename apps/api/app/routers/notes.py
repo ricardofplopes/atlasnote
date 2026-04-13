@@ -163,17 +163,19 @@ FORMAT_SYSTEM_PROMPT = """You are a markdown formatting assistant. Your ONLY job
 
 Rules:
 - Keep ALL original information intact — do not add, remove, or change any facts
+- Do NOT add a title or heading with the note's name — the title is displayed separately in the UI
 - Convert items separated by " - " on a single line into separate bullet points (each on its own line using "- ")
 - Preserve and enhance existing bullet lists
 - Preserve nested/indented items as nested lists
 - Keep all URLs exactly as they appear — do not modify, shorten, or rewrite URLs
-- Use ## headings to separate logical sections when appropriate
+- Use ## headings to separate logical sections when appropriate, but never repeat the note title as a heading
 - Use **bold** for emphasis on key terms or project names
-- Do NOT include any instructions, commentary, or preamble — return ONLY the formatted note content"""
+- Do NOT include any instructions, commentary, or preamble — return ONLY the formatted note content
+- Do NOT wrap the output in a top-level heading that mirrors the note title"""
 
-FORMAT_MARKDOWN_PROMPT = """Reformat this note into clean markdown.
+FORMAT_MARKDOWN_PROMPT = """Reformat the content below into clean markdown. Do NOT add a title heading — the title is already shown in the UI.
 
-Title: {title}
+Title (for context only, do NOT include as a heading): {title}
 
 Content:
 {content}"""
