@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { streamChat } from "@/lib/api";
+import { streamChat, listSections } from "@/lib/api";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface Citation {
   note_id: string;
@@ -25,6 +27,13 @@ interface Message {
   toolSteps?: ToolStep[];
 }
 
+interface Section {
+  id: string;
+  name: string;
+  slug: string;
+  children: Section[];
+}
+
 export default function ChatPage() {
   return <ChatContent />;
 }
@@ -35,11 +44,46 @@ function ChatContent() {
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [toolSteps, setToolSteps] = useState<ToolStep[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [sectionFilter, setSectionFilter] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
+
+  useEffect(() => {
+    listSections().then(setSections).catch(() => {});
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingContent, toolSteps]);
+
+  const flatSections = (secs: Section[], depth = 0): { slug: string; name: string; depth: number }[] => {
+    const result: { slug: string; name: string; depth: number }[] = [];
+    for (const s of secs) {
+      result.push({ slug: s.slug, name: s.name, depth });
+      if (s.children) result.push(...flatSections(s.children, depth + 1));
+    }
+    return result;
+  };
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => toastSuccess("Copied to clipboard"));
+  };
+
+  const handleClear = async () => {
+    if (messages.length === 0) return;
+    const ok = await confirm({
+      title: "Clear conversation",
+      message: "This will clear all messages in the current conversation.",
+      confirmLabel: "Clear",
+      variant: "warning",
+    });
+    if (ok) {
+      setMessages([]);
+      toastSuccess("Conversation cleared");
+    }
+  };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -54,7 +98,7 @@ function ChatContent() {
 
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
-      const response = await streamChat(question, undefined, history);
+      const response = await streamChat(question, sectionFilter || undefined, history);
 
       if (!response.ok) throw new Error("Stream request failed");
 
@@ -107,9 +151,10 @@ function ChatContent() {
       setStreamingContent("");
       setToolSteps([]);
     } catch (e) {
+      toastError("Chat failed. Check your LLM settings.");
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Sorry, something went wrong." },
+        { role: "assistant", content: "Sorry, something went wrong. Please check your LLM settings." },
       ]);
     } finally {
       setLoading(false);
@@ -118,17 +163,71 @@ function ChatContent() {
 
   return (
     <div className="max-w-4xl flex flex-col h-[calc(100vh-3rem)]">
-      <h2 className="text-2xl font-display font-bold mb-4">Chat with your notes</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-2xl font-display font-bold">Chat with your notes</h2>
+        {messages.length > 0 && (
+          <button
+            onClick={handleClear}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+            style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.04)" }}
+          >
+            Clear chat
+          </button>
+        )}
+      </div>
+
+      {/* Section scope filter */}
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>Scope:</span>
+        <select
+          value={sectionFilter}
+          onChange={(e) => setSectionFilter(e.target.value)}
+          className="px-3 py-1 rounded-lg text-xs"
+          style={{
+            background: '#1a1735',
+            color: '#e8e6f0',
+            border: '1px solid var(--card-border)',
+          }}
+        >
+          <option value="" style={{ background: '#1a1735', color: '#e8e6f0' }}>All notes</option>
+          {flatSections(sections).map((s) => (
+            <option key={s.slug} value={s.slug} style={{ background: '#1a1735', color: '#e8e6f0' }}>
+              {"  ".repeat(s.depth)}{s.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 mb-4">
         {messages.length === 0 && (
-          <p className="text-center mt-20" style={{ color: "var(--text-muted)" }}>
-            Ask a question about your notes. The AI will search and retrieve relevant content to answer.
-          </p>
+          <div className="text-center mt-20">
+            <div className="text-4xl mb-4">💬</div>
+            <p className="text-base font-medium mb-2" style={{ color: "var(--text-secondary)" }}>
+              Ask anything about your notes
+            </p>
+            <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+              The AI will search your knowledge base and cite sources.
+            </p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {[
+                "Summarize my recent meeting notes",
+                "What were the key decisions last week?",
+                "What projects is the team working on?",
+              ].map((q) => (
+                <button
+                  key={q}
+                  onClick={() => { setInput(q); }}
+                  className="px-3 py-2 text-xs rounded-lg transition-colors"
+                  style={{ background: "rgba(255,255,255,0.04)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {messages.map((msg, i) => (
           <div key={i}>
-            {/* Tool steps */}
             {msg.toolSteps && msg.toolSteps.length > 0 && (
               <div className="mb-2 ml-2 space-y-1">
                 {msg.toolSteps.map((step, j) => (
@@ -144,13 +243,27 @@ function ChatContent() {
               </div>
             )}
             <div
-              className="p-4 rounded-xl"
+              className="p-4 rounded-xl relative group"
               style={
                 msg.role === "user"
                   ? { background: "var(--accent-soft)", color: "#c4b5fd", marginLeft: "3rem" }
                   : { background: "var(--card-bg)", border: "1px solid var(--card-border)", marginRight: "3rem" }
               }
             >
+              {/* Copy button */}
+              {msg.role === "assistant" && (
+                <button
+                  onClick={() => handleCopy(msg.content)}
+                  className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                  style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+                  title="Copy to clipboard"
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <rect x="5" y="5" width="8" height="8" rx="1.5" />
+                    <path d="M3 11V3a1.5 1.5 0 011.5-1.5H11" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
               {msg.role === "assistant" ? (
                 <div className="prose prose-invert prose-sm max-w-none" style={{ color: "var(--foreground)" }}>
                   <ReactMarkdown>{msg.content}</ReactMarkdown>

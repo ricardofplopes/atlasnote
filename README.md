@@ -12,15 +12,20 @@
 
 - **Section & Sub-section Management** — Organize notes in hierarchical sections (e.g., 1on1s → Person A)
 - **Note CRUD** — Create, update, soft delete, restore, move between sections, tags, pinning
+- **Markdown Editor** — CodeMirror 6 with formatting toolbar, markdown help, and Format with AI
+- **Auto-save** — Debounced auto-save with status indicator (Saved / Saving / Unsaved), Ctrl+S shortcut
 - **Version History** — Every note update creates a version snapshot with restore capability
+- **Note Export** — Export individual notes as .md or entire sections as .zip
 - **Semantic Search** — Chunk and embed note content, search by meaning via pgvector
 - **Grounded Chat/Q&A** — Ask questions about your notes, get answers with citations
 - **TODOs** — Manual task management with LLM-powered auto-suggestions from notes
-- **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search, dynamic node sizing, and "Most Connected" panel
-- **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections and creates notes, with console logging of LLM provider/task and improved date splitting supporting multiple date formats
+- **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search
+- **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections with console logging
+- **LLM Settings** — Per-user provider configuration, test connection, activity logs
+- **Toast Notifications** — Visual feedback for all actions (save, delete, export, etc.)
 - **MCP Integration** — First-class MCP tools and resources for AI assistant integration
-- **Multi-user** — Google OAuth authentication with per-user data isolation
-- **Docker Compose** — One-command local deployment
+- **Multi-user** — GitHub/Google OAuth with per-user data isolation
+- **Docker Compose** — One-command deployment with health checks on all services
 
 ## Architecture
 
