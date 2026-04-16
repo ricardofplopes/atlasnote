@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getSettings, updateSettings, testLlmConnection, getLlmLogs, clearLlmLogs } from "@/lib/api";
+import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface SettingField {
   key: string;
@@ -150,8 +152,9 @@ function SettingsContent() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<"config" | "logs">("config");
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
 
   // Test connection state
   const [testing, setTesting] = useState(false);
@@ -190,16 +193,14 @@ function SettingsContent() {
 
   const handleSave = async () => {
     setSaving(true);
-    setSaved(false);
     try {
       const items = Object.entries(values)
         .filter(([key]) => allFields.some((f) => f.key === key))
         .map(([key, value]) => ({ key, value: value || null }));
       await updateSettings(items);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      toastSuccess("Settings saved");
     } catch (e) {
-      console.error(e);
+      toastError("Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -211,19 +212,34 @@ function SettingsContent() {
     try {
       const data = await testLlmConnection();
       setTestResults(data);
+      if (data.chat?.status === "ok" && data.embedding?.status === "ok") {
+        toastSuccess("Both providers connected successfully");
+      } else if (data.chat?.status === "ok" || data.embedding?.status === "ok") {
+        toastSuccess("Partial connection — check results");
+      } else {
+        toastError("Connection test failed");
+      }
     } catch (e) {
-      console.error(e);
+      toastError("Connection test failed");
     } finally {
       setTesting(false);
     }
   };
 
   const handleClearLogs = async () => {
+    const ok = await confirm({
+      title: "Clear activity logs",
+      message: "All LLM activity logs will be permanently cleared.",
+      confirmLabel: "Clear logs",
+      variant: "warning",
+    });
+    if (!ok) return;
     try {
       await clearLlmLogs();
       setLogs([]);
+      toastSuccess("Logs cleared");
     } catch (e) {
-      console.error(e);
+      toastError("Failed to clear logs");
     }
   };
 
@@ -392,9 +408,6 @@ function SettingsContent() {
             >
               {testing ? "Testing..." : "🔌 Test Connection"}
             </button>
-            {saved && (
-              <span className="text-sm text-green-400">Settings saved successfully</span>
-            )}
           </div>
 
           {/* Test results */}

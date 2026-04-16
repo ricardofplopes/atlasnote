@@ -1,6 +1,9 @@
 import uuid
+import io
+import zipfile
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -191,6 +194,78 @@ def _strip_code_fences(text: str) -> str:
     if text.endswith("```"):
         text = text[:-3].strip()
     return text
+
+
+def _slugify(text: str) -> str:
+    """Simple slug: lowercase, replace non-alphanumeric with hyphens."""
+    import re
+    slug = re.sub(r"[^\w\s-]", "", text.lower())
+    slug = re.sub(r"[\s_]+", "-", slug).strip("-")
+    return slug[:80] or "note"
+
+
+@router.get("/export/{note_id}")
+async def export_note(
+    note_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export a single note as a .md file."""
+    note = await _get_note(note_id, user.id, db)
+    lines = [f"# {note.title}\n"]
+    if note.tags:
+        lines.append(f"Tags: {', '.join(note.tags)}\n")
+    if note.source_url:
+        lines.append(f"Source: {note.source_url}\n")
+    lines.append(f"\n{note.content}\n")
+    md = "\n".join(lines)
+    filename = f"{_slugify(note.title)}.md"
+    return StreamingResponse(
+        io.BytesIO(md.encode("utf-8")),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export-section/{slug}")
+async def export_section(
+    slug: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export all notes in a section as a zip of .md files."""
+    result = await db.execute(
+        select(Section).where(Section.slug == slug, Section.user_id == user.id)
+    )
+    section = result.scalar_one_or_none()
+    if not section:
+        raise HTTPException(status_code=404, detail="Section not found")
+
+    result = await db.execute(
+        select(Note).where(
+            Note.section_id == section.id,
+            Note.user_id == user.id,
+            Note.is_deleted == False,
+        ).order_by(Note.position)
+    )
+    notes = result.scalars().all()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for note in notes:
+            lines = [f"# {note.title}\n"]
+            if note.tags:
+                lines.append(f"Tags: {', '.join(note.tags)}\n")
+            lines.append(f"\n{note.content}\n")
+            filename = f"{_slugify(note.title)}.md"
+            zf.writestr(filename, "\n".join(lines))
+    buf.seek(0)
+    zip_name = f"{_slugify(section.name)}-notes.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
 
 
 @router.post("/format-content")

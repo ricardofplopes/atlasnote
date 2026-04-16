@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo } from "@/lib/api";
+import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface Todo {
   id: string;
@@ -27,6 +29,8 @@ function TodosContent() {
   const [newTitle, setNewTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
 
   const loadTodos = async () => {
     try {
@@ -49,9 +53,10 @@ function TodosContent() {
       await createTodo({ title: newTitle.trim() });
       setNewTitle("");
       inputRef.current?.focus();
+      toastSuccess("Todo added");
       await loadTodos();
     } catch (e) {
-      console.error(e);
+      toastError("Failed to add todo");
     }
   };
 
@@ -60,34 +65,44 @@ function TodosContent() {
       await toggleTodo(id);
       await loadTodos();
     } catch (e) {
-      console.error(e);
+      toastError("Failed to toggle todo");
     }
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: "Delete todo",
+      message: "This todo will be permanently deleted.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteTodo(id);
+      toastSuccess("Todo deleted");
       await loadTodos();
     } catch (e) {
-      console.error(e);
+      toastError("Failed to delete todo");
     }
   };
 
   const handleDismiss = async (id: string) => {
     try {
       await dismissTodo(id);
+      toastSuccess("Suggestion dismissed");
       await loadTodos();
     } catch (e) {
-      console.error(e);
+      toastError("Failed to dismiss suggestion");
     }
   };
 
   const handleUpdate = async (id: string, data: { title?: string; description?: string }) => {
     try {
       await updateTodo(id, data);
+      toastSuccess("Todo updated");
       await loadTodos();
     } catch (e) {
-      console.error(e);
+      toastError("Failed to update todo");
     }
   };
 

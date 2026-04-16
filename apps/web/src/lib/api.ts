@@ -1,6 +1,9 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-async function apiFetch(path: string, options: RequestInit = {}) {
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
+const LLM_TIMEOUT = 60000; // 60 seconds for LLM calls
+
+async function apiFetch(path: string, options: RequestInit = {}, timeout = DEFAULT_TIMEOUT) {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const headers: Record<string, string> = {
@@ -9,18 +12,35 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
-  if (res.status === 401 && typeof window !== "undefined") {
-    localStorage.removeItem("token");
-    window.dispatchEvent(new Event("auth:logout"));
-    throw new Error("Unauthorized");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (res.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      window.dispatchEvent(new Event("auth:logout"));
+      throw new Error("Unauthorized");
+    }
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`API error ${res.status}: ${body}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  } catch (e: unknown) {
+    clearTimeout(timer);
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error("Request timed out. The server may be busy — please try again.");
+    }
+    throw e;
   }
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API error ${res.status}: ${body}`);
-  }
-  if (res.status === 204) return null;
-  return res.json();
 }
 
 // Auth
@@ -212,7 +232,7 @@ export async function generateWiki(sectionSlug: string, topic?: string) {
   return apiFetch("/api/wiki/generate", {
     method: "POST",
     body: JSON.stringify(data),
-  });
+  }, LLM_TIMEOUT);
 }
 
 // Settings
@@ -228,7 +248,7 @@ export async function updateSettings(items: { key: string; value: string | null 
 }
 
 export async function testLlmConnection() {
-  return apiFetch("/api/settings/test-connection", { method: "POST" });
+  return apiFetch("/api/settings/test-connection", { method: "POST" }, LLM_TIMEOUT);
 }
 
 export async function getLlmLogs(limit = 100) {
@@ -291,19 +311,62 @@ export async function getRelatedNotes(noteId: string, limit = 8) {
 
 // Format markdown
 export async function formatNoteMarkdown(noteId: string) {
-  return apiFetch(`/api/notes/${noteId}/format-markdown`, { method: "POST" });
+  return apiFetch(`/api/notes/${noteId}/format-markdown`, { method: "POST" }, LLM_TIMEOUT);
 }
 
 export async function formatContent(title: string, content: string) {
   return apiFetch("/api/notes/format-content", {
     method: "POST",
     body: JSON.stringify({ title, content }),
-  });
+  }, LLM_TIMEOUT);
 }
 
 // Auto-tag
 export async function autoTagNote(noteId: string) {
-  return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" });
+  return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" }, LLM_TIMEOUT);
+}
+
+// Export
+export function exportNoteUrl(noteId: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  return `${API_URL}/api/notes/export/${noteId}${token ? `?token=${token}` : ""}`;
+}
+
+export function exportSectionUrl(slug: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  return `${API_URL}/api/notes/export-section/${slug}${token ? `?token=${token}` : ""}`;
+}
+
+export async function exportNote(noteId: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/api/notes/export/${noteId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "note.md";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function exportSection(slug: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/api/notes/export-section/${slug}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "notes.zip";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Todos
@@ -334,7 +397,7 @@ export async function toggleTodo(id: string) {
 }
 
 export async function suggestTodos(noteId: string) {
-  return apiFetch(`/api/todos/suggest/${noteId}`, { method: "POST" });
+  return apiFetch(`/api/todos/suggest/${noteId}`, { method: "POST" }, LLM_TIMEOUT);
 }
 
 export async function dismissTodo(id: string) {

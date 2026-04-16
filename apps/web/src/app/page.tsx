@@ -21,16 +21,34 @@ export default function HomePage() {
 function RecentNotes() {
   const { user } = useAuth();
   const [notes, setNotes] = useState<Note[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) listRecentNotes().then(setNotes).catch(console.error);
+    if (user) {
+      listRecentNotes()
+        .then(setNotes)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
   }, [user]);
 
   return (
     <div className="max-w-4xl">
       <h2 className="text-2xl font-display font-bold mb-6">Recent Notes</h2>
-      {notes.length === 0 ? (
-        <p style={{ color: 'var(--text-muted)' }}>No notes yet. Create one from a section!</p>
+      {loading ? (
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="skeleton h-24 w-full" />
+          ))}
+        </div>
+      ) : notes.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="text-4xl mb-3">📒</div>
+          <p className="text-base font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>No notes yet</p>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Create your first note from a section in the sidebar.</p>
+        </div>
       ) : (
         <div className="space-y-3">
           {notes.map((note) => (

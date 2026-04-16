@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { semanticSearch } from "@/lib/api";
 import Link from "next/link";
+import { useToast } from "@/components/toast";
 
 interface ChunkResult {
   note_id: string;
@@ -22,6 +23,7 @@ function SearchContent() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [mode, setMode] = useState<"hybrid" | "semantic" | "keyword">("hybrid");
+  const { error: toastError } = useToast();
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -31,7 +33,7 @@ function SearchContent() {
       setResults(data.results);
       setSearched(true);
     } catch (e) {
-      console.error(e);
+      toastError("Search failed. Check your connection settings.");
     } finally {
       setLoading(false);
     }

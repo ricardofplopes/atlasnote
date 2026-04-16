@@ -14,8 +14,11 @@ import {
   moveSection,
   autoTagNote,
   formatContent,
+  exportSection,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   DndContext,
   closestCenter,
@@ -158,6 +161,8 @@ function SectionContent() {
   const [allSections, setAllSections] = useState<Section[]>([]);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -185,39 +190,59 @@ function SectionContent() {
 
   const handleCreateNote = async () => {
     if (!newTitle.trim()) return;
-    const newNote = await createNote(slug, {
-      title: newTitle,
-      content: newContent,
-      tags: newTags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    });
-    setNewTitle("");
-    setNewContent("");
-    setNewTags("");
-    setShowNewNote(false);
-    load();
-    // Trigger auto-tagging in background (don't block UI)
-    if (newNote?.id) {
-      autoTagNote(newNote.id).catch(() => {});
+    try {
+      const newNote = await createNote(slug, {
+        title: newTitle,
+        content: newContent,
+        tags: newTags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      });
+      setNewTitle("");
+      setNewContent("");
+      setNewTags("");
+      setShowNewNote(false);
+      toastSuccess("Note created");
+      load();
+      if (newNote?.id) {
+        autoTagNote(newNote.id).catch(() => {});
+      }
+    } catch {
+      toastError("Failed to create note");
     }
   };
 
   const handleCreateSub = async () => {
     if (!newSubName.trim() || !section) return;
-    await createSection({ name: newSubName, parent_id: section.id });
-    setNewSubName("");
-    setShowNewSub(false);
-    load();
-    window.dispatchEvent(new Event("sections:refresh"));
+    try {
+      await createSection({ name: newSubName, parent_id: section.id });
+      setNewSubName("");
+      setShowNewSub(false);
+      toastSuccess("Sub-section created");
+      load();
+      window.dispatchEvent(new Event("sections:refresh"));
+    } catch {
+      toastError("Failed to create sub-section");
+    }
   };
 
   const handleDelete = async () => {
-    if (!confirm("Delete this section and all its notes?")) return;
-    await deleteSection(slug);
-    window.dispatchEvent(new Event("sections:refresh"));
-    router.push("/");
+    const ok = await confirm({
+      title: "Delete section",
+      message: "This section and all its notes will be soft-deleted. Notes can be recovered from the Deleted page.",
+      confirmLabel: "Delete section",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteSection(slug);
+      toastSuccess("Section deleted");
+      window.dispatchEvent(new Event("sections:refresh"));
+      router.push("/");
+    } catch {
+      toastError("Failed to delete section");
+    }
   };
 
   const handleDragEnd = useCallback(
@@ -385,6 +410,20 @@ function SectionContent() {
                 style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
               >
                 Move
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await exportSection(slug);
+                    toastSuccess("Section exported");
+                  } catch {
+                    toastError("Export failed");
+                  }
+                }}
+                className="px-3 py-1.5 text-sm font-medium rounded-lg transition"
+                style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
+              >
+                Export
               </button>
               <button
                 onClick={handleDelete}
@@ -676,9 +715,11 @@ function SectionContent() {
       {/* Notes list with drag-and-drop */}
       <div className="space-y-3">
         {notes.length === 0 ? (
-          <p style={{ color: "var(--text-muted)" }}>
-            No notes in this section yet.
-          </p>
+          <div className="text-center py-16">
+            <div className="text-4xl mb-3">📝</div>
+            <p className="text-base font-medium mb-1" style={{ color: "var(--text-secondary)" }}>No notes yet</p>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click &quot;+ Note&quot; above to create your first note in this section.</p>
+          </div>
         ) : (
           <DndContext
             sensors={sensors}

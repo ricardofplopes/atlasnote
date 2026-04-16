@@ -13,9 +13,12 @@ import {
   getRelatedNotes,
   formatNoteMarkdown,
   autoTagNote,
+  exportNote,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import dynamic from "next/dynamic";
+import { useToast } from "@/components/toast";
+import { useConfirm } from "@/components/confirm-dialog";
 
 // Lazy load CodeMirror to avoid SSR issues
 const MarkdownEditor = dynamic(
@@ -167,6 +170,10 @@ function NoteContent() {
   const [formatting, setFormatting] = useState(false);
   const [tagging, setTagging] = useState(false);
   const [suggestedTags, setSuggestedTags] = useState<string[] | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "idle">("idle");
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { success: toastSuccess, error: toastError } = useToast();
+  const { confirm } = useConfirm();
 
   const load = () => {
     getNote(noteId).then((n) => {
@@ -175,6 +182,7 @@ function NoteContent() {
       setContent(n.content);
       setTags((n.tags || []).join(", "));
       setSourceUrl(n.source_url || "");
+      setSaveStatus("idle");
     });
   };
 
@@ -182,13 +190,56 @@ function NoteContent() {
     load();
   }, [noteId]);
 
+  const performSave = useCallback(async (silent = false) => {
+    setSaveStatus("saving");
+    try {
+      await updateNote(noteId, {
+        title,
+        content,
+        tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+        source_url: sourceUrl || undefined,
+      });
+      setSaveStatus("saved");
+      if (!silent) toastSuccess("Note saved");
+      // Reload to get updated timestamps
+      const n = await getNote(noteId);
+      setNote(n);
+    } catch (e) {
+      setSaveStatus("unsaved");
+      if (!silent) toastError("Failed to save note");
+    }
+  }, [noteId, title, content, tags, sourceUrl, toastSuccess, toastError]);
+
+  // Auto-save: debounce 2.5s after edits while in editing mode
+  useEffect(() => {
+    if (!editing || saveStatus !== "unsaved") return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => performSave(true), 2500);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [title, content, tags, sourceUrl, editing, saveStatus, performSave]);
+
+  // Mark as unsaved when fields change while editing
+  const markUnsaved = useCallback(() => {
+    if (editing && saveStatus !== "saving") setSaveStatus("unsaved");
+  }, [editing, saveStatus]);
+
+  useEffect(() => { if (editing) markUnsaved(); }, [title, content, tags, sourceUrl]);
+
+  // Keyboard shortcut: Ctrl+S to save
+  useEffect(() => {
+    if (!editing) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        performSave();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [editing, performSave]);
+
   const handleSave = async () => {
-    await updateNote(noteId, {
-      title,
-      content,
-      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-      source_url: sourceUrl || undefined,
-    });
+    await performSave();
     setEditing(false);
     load();
   };
@@ -197,14 +248,24 @@ function NoteContent() {
     if (!note) return;
     if (note.is_deleted) {
       await restoreNote(noteId);
+      toastSuccess("Note restored");
     } else {
+      const ok = await confirm({
+        title: "Delete note",
+        message: "This note will be moved to trash. You can restore it later.",
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
       await softDeleteNote(noteId);
+      toastSuccess("Note moved to trash");
     }
     load();
   };
 
   const handlePin = async () => {
     await togglePin(noteId);
+    toastSuccess(note?.is_pinned ? "Note unpinned" : "Note pinned");
     load();
   };
 
@@ -215,12 +276,32 @@ function NoteContent() {
   };
 
   const handleRestoreVersion = async (versionId: string) => {
+    const ok = await confirm({
+      title: "Restore version",
+      message: "This will replace the current note content with this version. A backup of the current version will be saved.",
+      confirmLabel: "Restore",
+      variant: "warning",
+    });
+    if (!ok) return;
     await restoreVersion(noteId, versionId);
+    toastSuccess("Version restored");
     setShowVersions(false);
     load();
   };
 
-  if (!note) return <div style={{ color: 'var(--text-muted)' }}>Loading...</div>;
+  // Word count helper
+  const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const charCount = content.length;
+  const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+
+  if (!note) {
+    return (
+      <div className="max-w-4xl space-y-4">
+        <div className="h-8 w-48 rounded-lg animate-pulse" style={{ background: "rgba(255,255,255,0.06)" }} />
+        <div className="h-96 rounded-xl animate-pulse" style={{ background: "rgba(255,255,255,0.04)" }} />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl">
@@ -254,6 +335,23 @@ function NoteContent() {
           }}
         >
           History
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              await exportNote(noteId);
+              toastSuccess("Note exported");
+            } catch {
+              toastError("Export failed");
+            }
+          }}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          Export
         </button>
         <button
           onClick={() => setEditing(!editing)}
@@ -419,13 +517,40 @@ function NoteContent() {
               color: 'var(--foreground)',
             }}
           />
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 text-white rounded-xl font-semibold hover:opacity-90 transition"
-            style={{ background: 'var(--accent)' }}
-          >
-            Save
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 text-white rounded-xl font-semibold hover:opacity-90 transition"
+              style={{ background: 'var(--accent)' }}
+            >
+              Save
+            </button>
+            <div className="flex items-center gap-4">
+              {/* Save status indicator */}
+              {saveStatus === "saving" && (
+                <span className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "#fbbf24" }} />
+                  Saving...
+                </span>
+              )}
+              {saveStatus === "saved" && (
+                <span className="text-xs flex items-center gap-1.5" style={{ color: "#4ade80" }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "#4ade80" }} />
+                  Saved
+                </span>
+              )}
+              {saveStatus === "unsaved" && (
+                <span className="text-xs flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: "var(--text-muted)" }} />
+                  Unsaved changes
+                </span>
+              )}
+              {/* Word count */}
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {wordCount} words · {charCount} chars · {readingTime} min read
+              </span>
+            </div>
+          </div>
         </div>
       ) : (
         <div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { listSections, generateWiki } from "@/lib/api";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { useToast } from "@/components/toast";
 
 interface Section {
   id: string;
@@ -32,6 +33,7 @@ function WikiContent() {
   const [sectionName, setSectionName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { error: toastError } = useToast();
 
   useEffect(() => {
     listSections().then(setSections).catch(console.error);
