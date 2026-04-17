@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useCommandPalette } from "@/components/command-palette";
 import { useEffect, useState } from "react";
 import { listSections, createSection } from "@/lib/api";
 
@@ -119,6 +120,7 @@ const navItems = [
 export function Sidebar({ onClose, width }: { onClose?: () => void; width?: number }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
+  const { open: openCommandPalette } = useCommandPalette();
   const [sections, setSections] = useState<Section[]>([]);
   const [newSection, setNewSection] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -163,13 +165,36 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
             Atlas Note
           </h1>
         </div>
-        {onClose && (
-          <button onClick={onClose} className="lg:hidden p-1 rounded" style={{ color: 'var(--text-muted)' }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {onClose && (
+            <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-muted)' }} title="Collapse sidebar">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Quick search trigger */}
+      <div className="px-3 pt-3">
+        <button
+          onClick={openCommandPalette}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-colors"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--card-border)',
+            color: 'var(--text-muted)',
+          }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+          </svg>
+          <span className="flex-1 text-left">Quick search…</span>
+          <kbd className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255,255,255,0.06)' }}>
+            Ctrl+K
+          </kbd>
+        </button>
       </div>
 
       {/* Navigation */}
@@ -180,16 +205,10 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
             <Link
               key={item.href}
               href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${!isActive ? 'hover-subtle' : ''}`}
               style={{
                 background: isActive ? 'var(--accent-soft)' : 'transparent',
                 color: isActive ? '#a78bfa' : 'var(--text-secondary)',
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.background = 'transparent';
               }}
             >
               <item.Icon className="w-[18px] h-[18px] shrink-0" />
@@ -209,10 +228,8 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
             </span>
             <button
               onClick={() => setShowNew(!showNew)}
-              className="w-5 h-5 flex items-center justify-center rounded-md text-sm leading-none transition-colors"
+              className="w-5 h-5 flex items-center justify-center rounded-md text-sm leading-none hover-accent"
               style={{ color: 'var(--text-muted)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-soft)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
               title="New section"
             >
               +
@@ -279,10 +296,8 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
             </div>
             <button
               onClick={logout}
-              className="p-1.5 rounded-lg transition-colors"
+              className="p-1.5 rounded-lg hover-danger"
               style={{ color: 'var(--text-muted)' }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(248,113,113,0.1)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
               title="Logout"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -325,16 +340,10 @@ function SectionItem({
         )}
         <Link
           href={`/sections/${section.slug}`}
-          className="flex-1 block px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors truncate"
+          className={`flex-1 block px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors truncate ${!isActive ? 'hover-subtle' : ''}`}
           style={{
             background: isActive ? 'var(--accent-soft)' : 'transparent',
             color: isActive ? '#a78bfa' : 'var(--text-secondary)',
-          }}
-          onMouseEnter={(e) => {
-            if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-          }}
-          onMouseLeave={(e) => {
-            if (!isActive) e.currentTarget.style.background = isActive ? 'var(--accent-soft)' : 'transparent';
           }}
         >
           {section.name}

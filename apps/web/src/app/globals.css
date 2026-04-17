@@ -11,6 +11,12 @@
   --accent-soft: rgba(122, 92, 255, 0.15);
   --text-muted: rgba(255, 255, 255, 0.45);
   --text-secondary: rgba(255, 255, 255, 0.65);
+  --success: #00D4AA;
+  --success-soft: rgba(0, 212, 170, 0.15);
+  --error: #f87171;
+  --error-soft: rgba(248, 113, 113, 0.15);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.15);
 }
 
 @theme inline {
@@ -105,4 +111,28 @@ select:focus-visible {
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: 8px;
+}
+
+/* Hover utility classes to replace inline onMouseEnter/Leave */
+.hover-subtle {
+  transition: background-color 0.15s, color 0.15s;
+}
+.hover-subtle:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.hover-accent {
+  transition: color 0.15s, background-color 0.15s;
+}
+.hover-accent:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.hover-danger {
+  transition: color 0.15s, background-color 0.15s;
+}
+.hover-danger:hover {
+  color: var(--error);
+  background: var(--error-soft);
 }

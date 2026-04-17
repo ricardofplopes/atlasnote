@@ -367,10 +367,8 @@ function TodoItem({
         {todo.is_suggested && !todo.is_done && (
           <button
             onClick={() => onDismiss(todo.id)}
-            className="p-1.5 rounded-lg transition-colors"
+            className="p-1.5 rounded-lg hover-danger"
             style={{ color: "var(--text-muted)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
             title="Dismiss suggestion"
           >
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
@@ -380,10 +378,8 @@ function TodoItem({
         )}
         <button
           onClick={() => setEditing(true)}
-          className="p-1.5 rounded-lg transition-colors"
+          className="p-1.5 rounded-lg hover-accent"
           style={{ color: "var(--text-muted)" }}
-          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-soft)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
           title="Edit"
         >
           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
@@ -401,10 +397,8 @@ function TodoItem({
         ) : (
           <button
             onClick={() => setConfirmDelete(true)}
-            className="p-1.5 rounded-lg transition-colors"
+            className="p-1.5 rounded-lg hover-danger"
             style={{ color: "var(--text-muted)" }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = "#f87171"; e.currentTarget.style.background = "rgba(248,113,113,0.1)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
             title="Delete"
           >
             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>

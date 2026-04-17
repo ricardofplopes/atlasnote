@@ -5,6 +5,7 @@ import { ConfigProvider } from "@/lib/config-context";
 import { AppShell } from "@/components/app-shell";
 import { ToastProvider } from "@/components/toast";
 import { ConfirmProvider } from "@/components/confirm-dialog";
+import { CommandPaletteProvider } from "@/components/command-palette";
 import { ReactNode } from "react";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -13,7 +14,9 @@ export function Providers({ children }: { children: ReactNode }) {
       <AuthProvider>
         <ToastProvider>
           <ConfirmProvider>
-            <AppShell>{children}</AppShell>
+            <CommandPaletteProvider>
+              <AppShell>{children}</AppShell>
+            </CommandPaletteProvider>
           </ConfirmProvider>
         </ToastProvider>
       </AuthProvider>

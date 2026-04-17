@@ -22,6 +22,7 @@
 - **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search
 - **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections with console logging
 - **LLM Settings** — Per-user provider configuration, test connection, activity logs
+- **Command Palette** — Ctrl+K quick search across notes, sections, and pages
 - **Toast Notifications** — Visual feedback for all actions (save, delete, export, etc.)
 - **MCP Integration** — First-class MCP tools and resources for AI assistant integration
 - **Multi-user** — GitHub/Google OAuth with per-user data isolation
@@ -347,6 +348,47 @@ cd apps/worker
 pip install -r requirements.txt
 python -m worker
 ```
+
+## Backup & Restore
+
+### Database Backup
+
+All notes, sections, users, and todos are stored in PostgreSQL. Back up the database regularly:
+
+```bash
+# Create a backup
+docker compose exec postgres pg_dump -U atlasnote atlasnote > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Automated daily backup (add to crontab)
+0 2 * * * cd /path/to/atlasnote && docker compose exec -T postgres pg_dump -U atlasnote atlasnote > backups/daily_$(date +\%Y\%m\%d).sql
+```
+
+### Restore from Backup
+
+```bash
+# Stop the API and worker first
+docker compose stop api worker
+
+# Restore the database
+docker compose exec -T postgres psql -U atlasnote atlasnote < backup_20260401_020000.sql
+
+# Restart services
+docker compose start api worker
+```
+
+### Export Notes
+
+You can also export notes through the UI:
+- **Single note**: Click "Export" on any note page → downloads as `.md` file
+- **Section export**: Click "Export" on a section page → downloads all notes as `.zip`
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+K` | Open command palette (search notes, sections, pages) |
+| `Ctrl+S` | Save current note (while editing) |
+| `Escape` | Close modals, dismiss dialogs |
 
 ## License
 

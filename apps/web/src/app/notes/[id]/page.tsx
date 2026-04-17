@@ -308,10 +308,8 @@ function NoteContent() {
       <div className="flex items-center gap-2 mb-6">
         <button
           onClick={() => router.back()}
-          className="transition-colors"
+          className="transition-colors hover-subtle"
           style={{ color: 'var(--text-muted)' }}
-          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--foreground)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
         >
           ←
         </button>

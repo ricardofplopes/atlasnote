@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {!sidebarOpen && (
           <button
             onClick={() => setSidebarOpen(true)}
-            className="fixed top-4 left-4 z-10 p-2 rounded-lg lg:hidden"
+            className="fixed top-4 left-4 z-10 p-2 rounded-lg"
             style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ color: 'var(--foreground)' }}>
