@@ -152,6 +152,7 @@ function SectionContent() {
   const [newTags, setNewTags] = useState("");
   const [showNewSub, setShowNewSub] = useState(false);
   const [newSubName, setNewSubName] = useState("");
+  const [showTemplates, setShowTemplates] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const [showMdHelp, setShowMdHelp] = useState(false);
   const [formatting, setFormatting] = useState(false);
@@ -330,6 +331,51 @@ function SectionContent() {
     return "";
   };
 
+  const NOTE_TEMPLATES = [
+    {
+      name: "Blank",
+      icon: "📄",
+      content: "",
+      tags: "",
+    },
+    {
+      name: "Meeting Notes",
+      icon: "📋",
+      content: "## Attendees\n\n- \n\n## Agenda\n\n1. \n\n## Discussion\n\n\n\n## Action Items\n\n- [ ] \n",
+      tags: "meeting",
+    },
+    {
+      name: "1-on-1",
+      icon: "👥",
+      content: "## Topics\n\n- \n\n## Updates\n\n\n\n## Action Items\n\n- [ ] \n\n## Notes\n\n",
+      tags: "1on1",
+    },
+    {
+      name: "Daily Log",
+      icon: "📅",
+      content: "## What I did today\n\n- \n\n## Blockers\n\n- \n\n## Tomorrow's plan\n\n- \n",
+      tags: "daily",
+    },
+    {
+      name: "Project Update",
+      icon: "🚀",
+      content: "## Status\n\n🟢 On track / 🟡 At risk / 🔴 Blocked\n\n## Progress\n\n- \n\n## Risks & Blockers\n\n- \n\n## Next Steps\n\n- \n",
+      tags: "project",
+    },
+    {
+      name: "Research",
+      icon: "🔬",
+      content: "## Topic\n\n\n\n## Key Findings\n\n- \n\n## Sources\n\n- \n\n## Conclusions\n\n",
+      tags: "research",
+    },
+  ];
+
+  const applyTemplate = (template: typeof NOTE_TEMPLATES[number]) => {
+    if (template.content) setNewContent(template.content);
+    if (template.tags) setNewTags(template.tags);
+    setShowTemplates(false);
+  };
+
   const insertMarkdown = (before: string, after: string = "") => {
     const ta = contentRef.current;
     if (!ta) return;
@@ -451,10 +497,8 @@ function SectionContent() {
                 setShowMove(false);
                 load();
               }}
-              className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+              className="w-full text-left px-3 py-2 rounded-lg text-sm hover-subtle"
               style={{ color: "var(--text-secondary)" }}
-              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
             >
               📁 Top level (no parent)
             </button>
@@ -470,10 +514,8 @@ function SectionContent() {
                       setShowMove(false);
                       load();
                     }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors"
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm hover-subtle"
                     style={{ color: "var(--text-secondary)" }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                   >
                     {item.parent_id ? "  ↳ " : "📁 "}{item.name}
                   </button>
@@ -561,6 +603,38 @@ function SectionContent() {
             autoFocus
           />
 
+          {/* Template picker */}
+          <div>
+            <button
+              onClick={() => setShowTemplates(!showTemplates)}
+              className="text-xs px-2.5 py-1 rounded-lg hover-accent"
+              style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.04)" }}
+              type="button"
+            >
+              📋 {showTemplates ? "Hide templates" : "Use a template"}
+            </button>
+            {showTemplates && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {NOTE_TEMPLATES.map((tmpl) => (
+                  <button
+                    key={tmpl.name}
+                    onClick={() => applyTemplate(tmpl)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg hover-subtle"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid var(--card-border)",
+                      color: "var(--text-secondary)",
+                    }}
+                    type="button"
+                  >
+                    <span>{tmpl.icon}</span>
+                    <span>{tmpl.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Markdown toolbar */}
           <div className="flex items-center gap-1 flex-wrap" style={{ borderBottom: "1px solid var(--card-border)", paddingBottom: "8px" }}>
             {[
@@ -578,16 +652,8 @@ function SectionContent() {
                 key={btn.title}
                 onClick={btn.action}
                 title={btn.title}
-                className="px-2 py-1 text-xs font-mono rounded transition-colors"
+                className="px-2 py-1 text-xs font-mono rounded hover-subtle"
                 style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.04)" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.1)";
-                  e.currentTarget.style.color = "var(--foreground)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                }}
                 type="button"
               >
                 {btn.label}
@@ -608,10 +674,8 @@ function SectionContent() {
                 }
               }}
               disabled={formatting || !newContent.trim()}
-              className="px-2.5 py-1 text-xs font-medium rounded transition-colors disabled:opacity-40"
+              className="px-2.5 py-1 text-xs font-medium rounded hover-accent disabled:opacity-40"
               style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
-              onMouseEnter={(e) => { if (!formatting) e.currentTarget.style.background = "rgba(122,92,255,0.25)"; }}
-              onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
               type="button"
             >
               {formatting ? "Formatting..." : "✨ Format with AI"}
@@ -619,10 +683,8 @@ function SectionContent() {
             <button
               onClick={() => setShowMdHelp(!showMdHelp)}
               title="Markdown Help"
-              className="px-2 py-1 text-xs rounded transition-colors"
+              className="px-2 py-1 text-xs rounded hover-subtle"
               style={{ color: "var(--text-muted)" }}
-              onMouseEnter={(e) => e.currentTarget.style.color = "var(--foreground)"}
-              onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
               type="button"
             >
               ?
