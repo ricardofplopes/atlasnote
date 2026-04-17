@@ -59,6 +59,13 @@ async def _api_delete(path: str) -> bool:
         return True
 
 
+async def _api_patch(path: str, data: dict = None) -> dict | list:
+    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+        resp = await client.patch(f"/api{path}", headers=_headers(), json=data or {})
+        resp.raise_for_status()
+        return resp.json()
+
+
 # ── Tools ──
 
 @mcp.tool()
@@ -235,6 +242,112 @@ async def get_recent_changes(limit: int = 20) -> str:
     return json.dumps(notes, indent=2)
 
 
+@mcp.tool()
+async def list_todos(filter: str = "all") -> str:
+    """List todos. Filter options: all, active, done, suggested.
+
+    Args:
+        filter: Filter type (all, active, done, suggested)
+    """
+    todos = await _api_get(f"/todos?filter={filter}")
+    return json.dumps(todos, indent=2)
+
+
+@mcp.tool()
+async def create_todo(title: str, description: str = "", note_id: str = "") -> str:
+    """Create a new todo item.
+
+    Args:
+        title: Todo title
+        description: Optional description
+        note_id: Optional note ID to link the todo to
+    """
+    data = {"title": title}
+    if description:
+        data["description"] = description
+    if note_id:
+        data["note_id"] = note_id
+    result = await _api_post("/todos", data)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def update_todo(todo_id: str, title: str = "", description: str = "", is_done: bool = None) -> str:
+    """Update a todo item.
+
+    Args:
+        todo_id: Todo UUID
+        title: New title (optional)
+        description: New description (optional)
+        is_done: Mark as done/undone (optional)
+    """
+    data = {}
+    if title:
+        data["title"] = title
+    if description:
+        data["description"] = description
+    if is_done is not None:
+        data["is_done"] = is_done
+    result = await _api_put(f"/todos/{todo_id}", data)
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def toggle_todo(todo_id: str) -> str:
+    """Toggle a todo between done and undone.
+
+    Args:
+        todo_id: Todo UUID
+    """
+    result = await _api_patch(f"/todos/{todo_id}/toggle")
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def delete_todo(todo_id: str) -> str:
+    """Delete a todo permanently.
+
+    Args:
+        todo_id: Todo UUID
+    """
+    await _api_delete(f"/todos/{todo_id}")
+    return f"Todo '{todo_id}' deleted."
+
+
+@mcp.tool()
+async def suggest_todos_from_note(note_id: str) -> str:
+    """Use LLM to suggest todos from a note's content.
+
+    Args:
+        note_id: Note UUID to analyze
+    """
+    result = await _api_post(f"/todos/suggest/{note_id}")
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+async def get_note_versions(note_id: str) -> str:
+    """Get version history of a note.
+
+    Args:
+        note_id: Note UUID
+    """
+    versions = await _api_get(f"/notes/{note_id}/versions")
+    return json.dumps(versions, indent=2)
+
+
+@mcp.tool()
+async def restore_note_version(note_id: str, version_id: str) -> str:
+    """Restore a note to a previous version.
+
+    Args:
+        note_id: Note UUID
+        version_id: Version UUID to restore
+    """
+    result = await _api_post(f"/notes/{note_id}/versions/{version_id}/restore")
+    return json.dumps(result, indent=2)
+
+
 # ── Resources ──
 
 @mcp.resource("notes://sections")
@@ -271,6 +384,20 @@ async def resource_search(query: str) -> str:
     """Search notes semantically."""
     result = await _api_post("/search", {"query": query, "limit": 10})
     return json.dumps(result, indent=2)
+
+
+@mcp.resource("notes://todos")
+async def resource_todos() -> str:
+    """Get all active todos."""
+    todos = await _api_get("/todos?filter=active")
+    return json.dumps(todos, indent=2)
+
+
+@mcp.resource("notes://deleted")
+async def resource_deleted() -> str:
+    """Get deleted notes."""
+    notes = await _api_get("/notes/deleted")
+    return json.dumps(notes, indent=2)
 
 
 if __name__ == "__main__":

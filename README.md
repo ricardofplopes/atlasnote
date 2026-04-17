@@ -273,6 +273,14 @@ Add to your MCP client configuration (e.g., `mcp.json`):
 | `semantic_search_notes` | Search notes by meaning |
 | `summarize_section` | LLM-generated section summary |
 | `get_recent_changes` | Get recently modified notes |
+| `list_todos` | List todos (filter: all, active, done, suggested) |
+| `create_todo` | Create a new todo |
+| `update_todo` | Update a todo |
+| `toggle_todo` | Toggle todo done/undone |
+| `delete_todo` | Delete a todo |
+| `suggest_todos_from_note` | LLM-suggest todos from a note |
+| `get_note_versions` | Get version history of a note |
+| `restore_note_version` | Restore a note to a previous version |
 
 ### Available Resources
 
@@ -283,6 +291,8 @@ Add to your MCP client configuration (e.g., `mcp.json`):
 | `notes://note/{id}` | Single note content |
 | `notes://recent` | Recently modified notes |
 | `notes://search/{query}` | Semantic search results |
+| `notes://todos` | Active todos |
+| `notes://deleted` | Deleted notes |
 
 ## Project Structure
 

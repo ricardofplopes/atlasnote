@@ -475,10 +475,8 @@ function NoteContent() {
                       setTags(currentTags.length > 0 ? `${tags}, ${tag}` : tag);
                     }
                   }}
-                  className="text-xs px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                  className="text-xs px-2 py-0.5 rounded-full hover-accent cursor-pointer"
                   style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.3)"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
                 >
                   + {tag}
                 </button>
@@ -553,7 +551,7 @@ function NoteContent() {
       ) : (
         <div>
           <h1 className="text-2xl font-display font-bold mb-2">{note.title}</h1>
-          <div className="flex gap-2 mb-4 flex-wrap">
+          <div className="flex gap-2 mb-4 flex-wrap items-center">
             {note.tags?.map((tag) => (
               <span key={tag} className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-soft)', color: '#a78bfa' }}>
                 {tag}
@@ -572,10 +570,15 @@ function NoteContent() {
           >
             <ReactMarkdown>{note.content}</ReactMarkdown>
           </div>
-          <p className="text-xs mt-4" style={{ color: 'var(--text-muted)' }}>
-            Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
-            {new Date(note.updated_at).toLocaleString()}
-          </p>
+          <div className="flex items-center justify-between mt-4">
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
+              {new Date(note.updated_at).toLocaleString()}
+            </p>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {wordCount} words · {readingTime} min read
+            </span>
+          </div>
 
           {/* Mini neighborhood graph */}
           <MiniGraph noteId={noteId} noteTitle={note.title} />

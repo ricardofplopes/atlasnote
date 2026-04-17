@@ -184,16 +184,8 @@ export function MarkdownEditor({ value, onChange, placeholder, showToolbar = tru
                 key={btn.title}
                 onClick={() => insertMarkdown(btn.before, btn.after)}
                 title={btn.title}
-                className="px-2 py-1 text-xs font-mono rounded transition-colors"
+                className="px-2 py-1 text-xs font-mono rounded hover-subtle"
                 style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.04)" }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.1)";
-                  e.currentTarget.style.color = "var(--foreground)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                }}
                 type="button"
               >
                 {btn.label}
@@ -206,10 +198,8 @@ export function MarkdownEditor({ value, onChange, placeholder, showToolbar = tru
               <button
                 onClick={onFormatAI}
                 disabled={formattingAI}
-                className="px-2.5 py-1 text-xs font-medium rounded transition-colors"
+                className="px-2.5 py-1 text-xs font-medium rounded hover-accent"
                 style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
-                onMouseEnter={(e) => { if (!formattingAI) e.currentTarget.style.background = "rgba(122,92,255,0.25)"; }}
-                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(122,92,255,0.15)"}
                 type="button"
               >
                 {formattingAI ? "Formatting..." : "✨ Format with AI"}
@@ -219,10 +209,8 @@ export function MarkdownEditor({ value, onChange, placeholder, showToolbar = tru
             <button
               onClick={() => setShowMdHelp(!showMdHelp)}
               title="Markdown Help"
-              className="px-2 py-1 text-xs rounded transition-colors"
+              className="px-2 py-1 text-xs rounded hover-subtle"
               style={{ color: "var(--text-muted)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--foreground)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
               type="button"
             >
               ?
