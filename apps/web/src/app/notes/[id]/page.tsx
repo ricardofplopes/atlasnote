@@ -14,6 +14,8 @@ import {
   formatNoteMarkdown,
   autoTagNote,
   exportNote,
+  summarizeNote,
+  writingAssist,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import dynamic from "next/dynamic";
@@ -149,7 +151,26 @@ function MiniGraph({ noteId, noteTitle }: { noteId: string; noteTitle: string })
   return (
     <div className="mt-6 p-4 rounded-xl" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
       <h4 className="text-sm font-semibold mb-2" style={{ color: "var(--text-muted)" }}>Related Notes</h4>
-      <canvas ref={canvasRef} className="w-full cursor-pointer" style={{ height: "200px" }} />
+      <div className="flex gap-4">
+        <canvas ref={canvasRef} className="cursor-pointer flex-shrink-0" style={{ height: "200px", width: "280px" }} />
+        <div className="flex-1 overflow-y-auto" style={{ maxHeight: "200px" }}>
+          {related.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => router.push(`/notes/${r.id}`)}
+              className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors hover-subtle"
+            >
+              <span className="truncate flex-1" style={{ color: "var(--foreground)" }}>{r.title}</span>
+              <span className="text-[10px] flex-shrink-0 px-1.5 py-0.5 rounded" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                {r.section_name}
+              </span>
+              <span className="text-[10px] flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                {Math.round(r.score * 100)}%
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -171,6 +192,10 @@ function NoteContent() {
   const [tagging, setTagging] = useState(false);
   const [suggestedTags, setSuggestedTags] = useState<string[] | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "idle">("idle");
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
@@ -429,6 +454,72 @@ function NoteContent() {
               </div>
             </div>
           )}
+          {/* AI Writing Assist buttons */}
+          {editing && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>AI Assist:</span>
+              {(["continue", "improve", "summarize"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={async () => {
+                    setAiLoading(true);
+                    setAiSuggestion(null);
+                    try {
+                      const res = await writingAssist(title, content, mode);
+                      if (res?.suggestion) setAiSuggestion(res.suggestion);
+                    } catch {
+                      toastError("AI assist failed");
+                    } finally {
+                      setAiLoading(false);
+                    }
+                  }}
+                  disabled={aiLoading || !content.trim()}
+                  className="text-xs px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap"
+                  style={{ background: "rgba(0,212,170,0.12)", color: "#00D4AA" }}
+                  type="button"
+                >
+                  {aiLoading ? "..." : mode === "continue" ? "✍️ Continue" : mode === "improve" ? "💡 Improve" : "📋 Summarize"}
+                </button>
+              ))}
+            </div>
+          )}
+          {aiSuggestion && (
+            <div className="p-3 rounded-xl space-y-2" style={{ background: "rgba(0,212,170,0.05)", border: "1px solid rgba(0,212,170,0.2)" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: "#00D4AA" }}>✍️ AI Suggestion</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setContent(content + "\n\n" + aiSuggestion);
+                      setAiSuggestion(null);
+                      setSaveStatus("unsaved");
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium rounded-lg text-white"
+                    style={{ background: "#00D4AA" }}
+                  >
+                    Append
+                  </button>
+                  <button
+                    onClick={() => {
+                      setContent(aiSuggestion);
+                      setAiSuggestion(null);
+                      setSaveStatus("unsaved");
+                    }}
+                    className="px-2.5 py-1 text-xs font-medium rounded-lg"
+                    style={{ color: "#00D4AA", border: "1px solid rgba(0,212,170,0.3)" }}
+                  >
+                    Replace
+                  </button>
+                  <button onClick={() => setAiSuggestion(null)} className="text-xs px-2 py-1" style={{ color: "var(--text-muted)" }}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+              <div className="text-sm p-2 rounded-lg prose prose-invert prose-sm max-w-none" style={{ background: "rgba(0,0,0,0.15)" }}>
+                <ReactMarkdown>{aiSuggestion}</ReactMarkdown>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <input
               value={tags}
@@ -575,10 +666,40 @@ function NoteContent() {
               Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
               {new Date(note.updated_at).toLocaleString()}
             </p>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              {wordCount} words · {readingTime} min read
-            </span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={async () => {
+                  setSummaryLoading(true);
+                  try {
+                    const res = await summarizeNote(noteId);
+                    setSummary(res?.summary || "No summary available.");
+                  } catch {
+                    toastError("Summarization failed");
+                  } finally {
+                    setSummaryLoading(false);
+                  }
+                }}
+                disabled={summaryLoading}
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+              >
+                {summaryLoading ? "..." : "📋 Summarize"}
+              </button>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {wordCount} words · {readingTime} min read
+              </span>
+            </div>
           </div>
+
+          {summary && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: "#a78bfa" }}>📋 Summary</span>
+                <button onClick={() => setSummary(null)} className="text-xs" style={{ color: "var(--text-muted)" }}>✕</button>
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{summary}</p>
+            </div>
+          )}
 
           {/* Mini neighborhood graph */}
           <MiniGraph noteId={noteId} noteTitle={note.title} />

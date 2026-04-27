@@ -21,6 +21,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/search": (30, 60),
         "/api/import": (5, 60),
         "/api/notes/format": (10, 60),
+        "/api/notes/writing-assist": (10, 60),
+        "/api/notes/graph-data": (10, 60),
         "/api/todos/suggest": (10, 60),
     }
 

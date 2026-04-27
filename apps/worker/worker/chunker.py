@@ -26,15 +26,19 @@ AUTO_TAG_PROMPT = """You are a knowledge management assistant. Extract relevant 
 Rules:
 - Return 2-6 tags that describe the main topics, people, projects, or concepts
 - Tags should be short (1-3 words each)
-- Use title case
+- Use Title Case
 - Focus on what would help the user find this note later
-- Do not include generic tags like "Note" or "Text"
+- Do not include generic tags like "Note", "Text", "Content", or "Meeting Notes"
+- PREFER reusing existing tags from the workspace when they fit (for consistency)
+- Only create new tags if existing ones don't cover the topic
+
+Existing workspace tags: {existing_tags}
 
 Return ONLY a JSON array of strings, nothing else. Example: ["Machine Learning", "Python", "Data Pipeline"]
 
 Note title: {title}
 
-Note content (first 2000 chars):
+Note content:
 {content}"""
 
 EXTRACT_TODOS_PROMPT = """You are a productivity assistant. Analyze the following note and extract any actionable TODO items.
@@ -57,14 +61,26 @@ Example: [{{"title": "Schedule meeting with design team", "description": "Discus
 Return ONLY valid JSON, no extra text."""
 
 
-async def extract_tags(title: str, content: str, provider=None) -> list[str]:
+async def extract_tags(title: str, content: str, provider=None, existing_workspace_tags: str = "none yet") -> list[str]:
     """Use LLM to extract tags from note content."""
     try:
         if provider is None:
             provider = get_chat_provider()
+
+        # Build content sample: head + tail + middle for better coverage
+        if len(content) <= 6000:
+            content_sample = content
+        else:
+            head = content[:2500]
+            tail = content[-2000:]
+            mid_start = len(content) // 2 - 750
+            middle = content[mid_start:mid_start + 1500]
+            content_sample = f"{head}\n\n[...]\n\n{middle}\n\n[...]\n\n{tail}"
+
         prompt = AUTO_TAG_PROMPT.format(
             title=title,
-            content=content[:2000],
+            content=content_sample,
+            existing_tags=existing_workspace_tags,
         )
         result = await provider.chat([
             {"role": "system", "content": "You are a tagging assistant. Return only valid JSON arrays."},
@@ -78,7 +94,16 @@ async def extract_tags(title: str, content: str, provider=None) -> list[str]:
 
         tags = json.loads(result)
         if isinstance(tags, list):
-            return [str(t).strip() for t in tags if isinstance(t, str) and t.strip()][:6]
+            # Normalize to Title Case and deduplicate
+            seen = set()
+            clean_tags = []
+            for t in tags:
+                if isinstance(t, str) and t.strip():
+                    normalized = t.strip().title()
+                    if normalized.lower() not in seen:
+                        seen.add(normalized.lower())
+                        clean_tags.append(normalized)
+            return clean_tags[:6]
     except Exception as e:
         logger.warning(f"Auto-tagging failed: {e}")
     return []
@@ -167,12 +192,29 @@ async def process_note(note_id, content: str, session: AsyncSession, embedding_p
     logger.info(f"Processed note {note_id}: {len(chunks)} chunks created")
 
 
-async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession, chat_provider=None):
-    """Auto-tag a note if it has no tags."""
+async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession, chat_provider=None, user_id=None):
+    """Auto-tag a note if it has no tags, with workspace tag awareness."""
     if existing_tags:
         return
 
-    tags = await extract_tags(title, content, provider=chat_provider)
+    # Gather existing tags across workspace for consistency
+    existing_workspace_tags = "none yet"
+    if user_id:
+        try:
+            tags_result = await session.execute(
+                select(Note.tags)
+                .where(Note.user_id == user_id, Note.is_deleted == False, Note.tags.isnot(None))
+            )
+            all_tags: set[str] = set()
+            for row in tags_result.all():
+                if row.tags:
+                    all_tags.update(row.tags)
+            if all_tags:
+                existing_workspace_tags = ", ".join(sorted(all_tags)[:50])
+        except Exception:
+            pass
+
+    tags = await extract_tags(title, content, provider=chat_provider, existing_workspace_tags=existing_workspace_tags)
     if tags:
         from sqlalchemy import update
         await session.execute(
@@ -273,7 +315,7 @@ async def run_worker():
                         embed_prov = get_embedding_provider_from_config(user_cfg)
                         logger.info(f"Processing note {note.id} with chat={get_provider_info(chat_prov)}, embed={get_provider_info(embed_prov)}")
                         await process_note(note.id, note.content, session, embedding_provider=embed_prov)
-                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session, chat_provider=chat_prov)
+                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session, chat_provider=chat_prov, user_id=note.user_id)
                         await auto_suggest_todos(note.id, note.user_id, note.title, note.content, session, chat_provider=chat_prov)
                     except Exception as e:
                         logger.error(f"Error processing note {note.id}: {e}")

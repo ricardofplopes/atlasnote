@@ -326,6 +326,29 @@ export async function autoTagNote(noteId: string) {
   return apiFetch(`/api/notes/${noteId}/auto-tag`, { method: "POST" }, LLM_TIMEOUT);
 }
 
+// Graph data (single call)
+export async function getGraphData(limit = 100) {
+  return apiFetch(`/api/notes/graph-data?limit=${limit}`);
+}
+
+// Embedding stats / diagnostics
+export async function getEmbeddingStats() {
+  return apiFetch("/api/notes/embedding-stats");
+}
+
+// Note summarization
+export async function summarizeNote(noteId: string) {
+  return apiFetch(`/api/notes/${noteId}/summarize`, { method: "POST" }, LLM_TIMEOUT);
+}
+
+// AI writing assistance
+export async function writingAssist(title: string, content: string, mode: "continue" | "improve" | "summarize" = "continue") {
+  return apiFetch("/api/notes/writing-assist", {
+    method: "POST",
+    body: JSON.stringify({ title, content, mode }),
+  }, LLM_TIMEOUT);
+}
+
 // Export
 export function exportNoteUrl(noteId: string) {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
