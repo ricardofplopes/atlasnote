@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { streamChat, listSections } from "@/lib/api";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -266,7 +267,7 @@ function ChatContent() {
               )}
               {msg.role === "assistant" ? (
                 <div className="prose prose-invert prose-sm max-w-none" style={{ color: "var(--foreground)" }}>
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{msg.content}</ReactMarkdown>
                 </div>
               ) : (
                 <p className="whitespace-pre-wrap" style={{ color: "#e0d7ff" }}>{msg.content}</p>
@@ -307,7 +308,7 @@ function ChatContent() {
             <div className="p-4 rounded-xl mr-12" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
               {streamingContent ? (
                 <div className="prose prose-invert prose-sm max-w-none" style={{ color: "var(--foreground)" }}>
-                  <ReactMarkdown>{streamingContent}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{streamingContent}</ReactMarkdown>
                   <span className="animate-pulse ml-1">▊</span>
                 </div>
               ) : (

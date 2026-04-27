@@ -17,6 +17,7 @@ import {
   exportSection,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
 import {
@@ -747,7 +748,7 @@ function SectionContent() {
                 </div>
               </div>
               <div className="p-3 rounded-lg prose prose-invert prose-sm max-w-none text-sm" style={{ background: "rgba(0,0,0,0.2)" }}>
-                <ReactMarkdown>{formatPreview}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{formatPreview}</ReactMarkdown>
               </div>
             </div>
           )}

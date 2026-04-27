@@ -18,6 +18,7 @@ import {
   writingAssist,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
+import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
 import dynamic from "next/dynamic";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -450,7 +451,7 @@ function NoteContent() {
                 </div>
               </div>
               <div className="p-3 rounded-lg prose prose-invert prose-sm max-w-none text-sm" style={{ background: "rgba(0,0,0,0.2)" }}>
-                <ReactMarkdown>{formatPreview}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{formatPreview}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -516,7 +517,7 @@ function NoteContent() {
                 </div>
               </div>
               <div className="text-sm p-2 rounded-lg prose prose-invert prose-sm max-w-none" style={{ background: "rgba(0,0,0,0.15)" }}>
-                <ReactMarkdown>{aiSuggestion}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{aiSuggestion}</ReactMarkdown>
               </div>
             </div>
           )}
@@ -659,7 +660,7 @@ function NoteContent() {
             className="p-6 rounded-xl prose prose-invert prose-sm max-w-none"
             style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--foreground)' }}
           >
-            <ReactMarkdown>{note.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{note.content}</ReactMarkdown>
           </div>
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>

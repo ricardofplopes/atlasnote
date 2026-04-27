@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { listSections, generateWiki } from "@/lib/api";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
+import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
 import { useToast } from "@/components/toast";
 
 interface Section {
@@ -145,7 +146,7 @@ function WikiContent() {
               {sectionName} {topic ? `— ${topic}` : ""}
             </h3>
             <div className="prose prose-invert prose-sm max-w-none" style={{ color: "var(--foreground)" }}>
-              <ReactMarkdown>{article}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{article}</ReactMarkdown>
             </div>
           </div>
 
