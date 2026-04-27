@@ -14,6 +14,7 @@ interface FilePreview {
   content_preview: string;
   content_full: string | null;
   split_from: string | null;
+  split_strategy: string | null;
 }
 
 export default function ImportPage() {
@@ -128,8 +129,15 @@ function ImportContent() {
         if (data.files && data.files.length > 0) {
           addLog(`   ✓ LLM response received — parsing categorization...`);
           const splitFrom = data.files[0].split_from;
+          const splitStrategy = data.files[0].split_strategy;
           if (splitFrom && data.files.length > 1) {
-            addLog(`   ✓ Detected ${data.files.length} date entries — splitting into separate notes`);
+            if (splitStrategy === "by_entity") {
+              const entityNames = data.files.map((f: FilePreview) => f.suggested_title).join(", ");
+              addLog(`   ✓ Detected entity-based structure: ${entityNames}`);
+              addLog(`   ✓ Creating ${data.files.length} per-entity notes`);
+            } else {
+              addLog(`   ✓ Detected ${data.files.length} date entries — splitting into separate notes`);
+            }
             for (const preview of data.files) {
               allPreviews.push(preview);
               addLog(`     → "${preview.suggested_title}"`);
@@ -286,13 +294,15 @@ function ImportContent() {
               }
             }
 
-            return groups.map((group, gi) => (
+            return groups.map((group, gi) => {
+              const isEntitySplit = group.items[0]?.split_strategy === "by_entity";
+              return (
               <div key={gi}>
                 {group.source && (
                   <div className="flex items-center gap-2 mb-2 mt-4">
                     <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{group.source}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80" }}>
-                      Split into {group.items.length} notes
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: isEntitySplit ? "rgba(56,189,248,0.15)" : "rgba(74,222,128,0.15)", color: isEntitySplit ? "#38bdf8" : "#4ade80" }}>
+                      {isEntitySplit ? `${group.items.length} entities detected` : `Split into ${group.items.length} notes`}
                     </span>
                   </div>
                 )}
@@ -333,7 +343,7 @@ function ImportContent() {
                   ))}
                 </div>
               </div>
-            ));
+            );});
           })()}
 
           {!imported ? (

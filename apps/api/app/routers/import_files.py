@@ -29,6 +29,81 @@ DATE_HEADER_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
+# Regex for entity/person headers: "Name:" at start of line after blank line(s)
+# Matches 1-3 capitalized words (with accented chars) followed by colon
+ENTITY_HEADER_RE = re.compile(
+    r"(?:^|\n)(\s*\n)"
+    r"([A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+(?:\s+[A-ZÀ-ÖØ-Ý][a-zà-öø-ÿ]+){0,2})"
+    r":\s*\n",
+    re.MULTILINE,
+)
+
+
+def split_by_entity_sections(content: str) -> tuple[str | None, list[tuple[str, str]]]:
+    """Detect entity-based sections (e.g. person names with dated bullet entries).
+    
+    Returns (file_header, [(entity_name, entity_content)]).
+    file_header is any text before the first entity (e.g. "Evaluation Notes:").
+    Returns (None, []) if no entity structure detected.
+    """
+    matches = list(ENTITY_HEADER_RE.finditer(content))
+    if len(matches) < 2:
+        return None, []
+    
+    # Build candidate entities with their content
+    candidates = []
+    for i, match in enumerate(matches):
+        entity_name = match.group(2).strip()
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        entity_content = content[start:end].strip()
+        candidates.append((entity_name, entity_content, match.start()))
+    
+    # Filter: only keep entities with substantive content (> 20 chars)
+    entities = [(name, text) for name, text, _ in candidates if len(text) > 20]
+    
+    if len(entities) < 2:
+        return None, []
+    
+    # Verify at least half have date-prefixed bullet entries (confirms person-notes pattern)
+    date_bullet_re = re.compile(r"^\s*-\s*\d{1,2}[/-]\d{2}[/-]\d{2,4}", re.MULTILINE)
+    dated_count = sum(1 for _, text in entities if date_bullet_re.search(text))
+    if dated_count < len(entities) / 2:
+        return None, []
+    
+    # Extract file header (content before first entity match)
+    first_match_start = candidates[0][2]
+    header = content[:first_match_start].strip() if first_match_start > 0 else None
+    # Clean header: remove trailing colons/whitespace
+    if header:
+        header = re.sub(r":\s*$", "", header).strip()
+    
+    return header, entities
+
+
+MULTI_ENTITY_PROMPT = """You are a note organizer. A file contains notes organized by person/entity.
+Given the filename, detected entity names, the file header, and the user's existing sections, suggest where to organize these notes.
+
+CRITICAL RULES:
+1. DO NOT categorize as "1on1s" unless the filename explicitly contains "1on1" or "one-on-one" or "1-on-1"
+2. Use the filename and file header to determine the section and sub-section
+3. PREFER matching existing sections over creating new ones
+4. Each detected entity will become a separate note — you only need to provide the section/subsection
+
+Existing sections (with sub-sections): {sections}
+
+Filename: {filename}
+File header: {header}
+Detected entities: {entities}
+
+Respond ONLY with valid JSON:
+{{
+  "section": "section name (match existing section if possible)",
+  "subsection": "sub-section name or null (use file header if descriptive, e.g. 'Evaluation Notes')",
+  "tags": ["tag1", "tag2"]
+}}"""
+
+
 CATEGORIZE_PROMPT = """You are a note organizer. Given a filename and content, suggest how to categorize this note.
 
 IMPORTANT RULES:
@@ -186,6 +261,60 @@ async def upload_files(
             continue
 
         content = (await file.read()).decode("utf-8", errors="replace")
+
+        # Phase 1: Try entity/person-based splitting first
+        file_header, entity_sections = split_by_entity_sections(content)
+        
+        if entity_sections:
+            # Entity-based file — use multi-entity prompt
+            entity_names = [name for name, _ in entity_sections]
+            logger.info(f"[Import] Detected entity-based structure in '{file.filename}': {', '.join(entity_names)}")
+            
+            entity_prompt = MULTI_ENTITY_PROMPT.format(
+                sections=sections_str,
+                filename=file.filename,
+                header=file_header or "(none)",
+                entities=", ".join(entity_names),
+            )
+            
+            logger.info(f"[Import] Sending to LLM for entity-aware categorization...")
+            try:
+                response = await provider.chat([{"role": "user", "content": entity_prompt}], temperature=0.2)
+                response = response.strip()
+                if response.startswith("```"):
+                    response = response.split("\n", 1)[1].rsplit("```", 1)[0]
+                entity_suggestion = json.loads(response)
+            except (json.JSONDecodeError, Exception):
+                entity_suggestion = {
+                    "section": file_header or file.filename.replace(".txt", "").replace(".md", ""),
+                    "subsection": None,
+                    "tags": ["imported"],
+                }
+            
+            section_name = entity_suggestion.get("section", "Imported")
+            subsection_name = entity_suggestion.get("subsection")
+            entity_tags = entity_suggestion.get("tags", [])
+            logger.info(f"[Import] Entity categorization: section='{section_name}', subsection='{subsection_name}'")
+            
+            for entity_name, entity_content in entity_sections:
+                previews.append(
+                    ImportFilePreview(
+                        filename=f"{file.filename}#{entity_name}",
+                        suggested_section=section_name,
+                        suggested_subsection=subsection_name,
+                        suggested_title=entity_name,
+                        suggested_tags=entity_tags,
+                        content_preview=entity_content[:500],
+                        content_full=entity_content,
+                        split_from=file.filename,
+                        split_strategy="by_entity",
+                    )
+                )
+                logger.info(f"[Import]   → Entity note: '{entity_name}'")
+            
+            continue  # Skip date-based splitting for this file
+
+        # Phase 2: No entity structure — use standard categorization
         prompt = CATEGORIZE_PROMPT.format(
             sections=sections_str,
             filename=file.filename,
@@ -233,6 +362,7 @@ async def upload_files(
                         content_preview=entry_content[:500],
                         content_full=entry_content,
                         split_from=file.filename,
+                        split_strategy="by_date",
                     )
                 )
         else:
