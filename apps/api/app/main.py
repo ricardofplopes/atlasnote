@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import text
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router, todos
+from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router, todos, mcp_connections
 
 settings = get_settings()
 
@@ -87,6 +87,7 @@ app.include_router(wiki.router, prefix="/api/wiki", tags=["wiki"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(import_files.router, prefix="/api/import", tags=["import"])
 app.include_router(todos.router, prefix="/api/todos", tags=["todos"])
+app.include_router(mcp_connections.router, prefix="/api/mcp-connections", tags=["mcp-connections"])
 
 
 @app.get("/api/health")
