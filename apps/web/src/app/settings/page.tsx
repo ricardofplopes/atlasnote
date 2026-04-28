@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { getSettings, updateSettings, testLlmConnection, getLlmLogs, clearLlmLogs } from "@/lib/api";
+import {
+  getSettings, updateSettings, testLlmConnection, getLlmLogs, clearLlmLogs,
+  exportBackup, importBackup, listBackups, downloadBackup,
+  listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer, testMcpServer, toggleMcpServer,
+  McpServerConfig,
+} from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -152,7 +157,7 @@ function SettingsContent() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"config" | "logs">("config");
+  const [activeTab, setActiveTab] = useState<"config" | "backup" | "mcp" | "logs">("config");
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
 
@@ -163,6 +168,21 @@ function SettingsContent() {
   // Logs state
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+
+  // Backup state
+  const [backups, setBackups] = useState<{filename: string; size_bytes: number; created_at: string}[]>([]);
+  const [backupsLoading, setBackupsLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  // MCP state
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpFormOpen, setMcpFormOpen] = useState(false);
+  const [mcpEditing, setMcpEditing] = useState<McpServerConfig | null>(null);
+  const [mcpForm, setMcpForm] = useState({ name: "", url: "", transport: "sse", api_key: "", description: "" });
+  const [mcpTesting, setMcpTesting] = useState<string | null>(null);
+  const [mcpTestResult, setMcpTestResult] = useState<{status: string; tools_count?: number; tools?: {name: string; description: string}[]; error?: string} | null>(null);
 
   useEffect(() => {
     getSettings()
@@ -188,6 +208,163 @@ function SettingsContent() {
   useEffect(() => {
     if (activeTab === "logs") loadLogs();
   }, [activeTab, loadLogs]);
+
+  const loadBackups = useCallback(async () => {
+    setBackupsLoading(true);
+    try {
+      const data = await listBackups();
+      setBackups(data.backups || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBackupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "backup") loadBackups();
+  }, [activeTab, loadBackups]);
+
+  const loadMcpServers = useCallback(async () => {
+    setMcpLoading(true);
+    try {
+      const data = await listMcpServers();
+      setMcpServers(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setMcpLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "mcp") loadMcpServers();
+  }, [activeTab, loadMcpServers]);
+
+  const handleExportBackup = async () => {
+    setExporting(true);
+    try {
+      await exportBackup();
+      toastSuccess("Backup exported");
+    } catch (e) {
+      toastError("Failed to export backup");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImportBackup = async (file: File) => {
+    const ok = await confirm({
+      title: "Import backup",
+      message: "This will REPLACE all your current data (notes, sections, tags) with the backup contents. This action cannot be undone.",
+      confirmLabel: "Import & Replace",
+      variant: "danger",
+    });
+    if (!ok) return;
+    setImporting(true);
+    try {
+      const result = await importBackup(file);
+      toastSuccess(result.message || "Backup imported successfully");
+      loadBackups();
+    } catch (e) {
+      toastError("Failed to import backup");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleMcpSave = async () => {
+    try {
+      if (mcpEditing) {
+        await updateMcpServer(mcpEditing.id, {
+          name: mcpForm.name,
+          url: mcpForm.url,
+          transport: mcpForm.transport,
+          api_key: mcpForm.api_key || undefined,
+          description: mcpForm.description || undefined,
+        });
+        toastSuccess("Server updated");
+      } else {
+        await createMcpServer({
+          name: mcpForm.name,
+          url: mcpForm.url,
+          transport: mcpForm.transport,
+          api_key: mcpForm.api_key || undefined,
+          description: mcpForm.description || undefined,
+        });
+        toastSuccess("Server added");
+      }
+      setMcpFormOpen(false);
+      setMcpEditing(null);
+      setMcpForm({ name: "", url: "", transport: "sse", api_key: "", description: "" });
+      loadMcpServers();
+    } catch (e) {
+      toastError("Failed to save MCP server");
+    }
+  };
+
+  const handleMcpDelete = async (id: string) => {
+    const ok = await confirm({
+      title: "Delete MCP server",
+      message: "This server configuration will be permanently deleted.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteMcpServer(id);
+      toastSuccess("Server deleted");
+      loadMcpServers();
+    } catch (e) {
+      toastError("Failed to delete server");
+    }
+  };
+
+  const handleMcpToggle = async (id: string) => {
+    try {
+      await toggleMcpServer(id);
+      loadMcpServers();
+    } catch (e) {
+      toastError("Failed to toggle server");
+    }
+  };
+
+  const handleMcpTest = async (id: string) => {
+    setMcpTesting(id);
+    setMcpTestResult(null);
+    try {
+      const result = await testMcpServer(id);
+      setMcpTestResult(result);
+      if (result.status === "ok") {
+        toastSuccess(`Connected — ${result.tools_count || 0} tools available`);
+      } else {
+        toastError("Connection test failed");
+      }
+    } catch (e) {
+      toastError("Connection test failed");
+    } finally {
+      setMcpTesting(null);
+    }
+  };
+
+  const openMcpEdit = (server: McpServerConfig) => {
+    setMcpEditing(server);
+    setMcpForm({
+      name: server.name,
+      url: server.url,
+      transport: server.transport,
+      api_key: "",
+      description: server.description || "",
+    });
+    setMcpFormOpen(true);
+    setMcpTestResult(null);
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const allFields = SETTING_GROUPS.flatMap((g) => g.fields);
 
@@ -275,17 +452,17 @@ function SettingsContent() {
 
       {/* Tab switcher */}
       <div className="flex gap-1 mb-6 p-1 rounded-xl" style={{ background: "rgba(255,255,255,0.04)" }}>
-        {(["config", "logs"] as const).map((tab) => (
+        {(["config", "backup", "mcp", "logs"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className="flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all"
+            className="flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all"
             style={{
               background: activeTab === tab ? "var(--accent)" : "transparent",
               color: activeTab === tab ? "#fff" : "var(--text-secondary)",
             }}
           >
-            {tab === "config" ? "⚙️ Configuration" : "📋 Activity Logs"}
+            {tab === "config" ? "⚙️ Configuration" : tab === "backup" ? "💾 Backup" : tab === "mcp" ? "🔌 MCP Servers" : "📋 Activity Logs"}
           </button>
         ))}
       </div>
@@ -482,6 +659,375 @@ function SettingsContent() {
             </div>
           </div>
         </>
+      ) : activeTab === "backup" ? (
+        /* Backup tab */
+        <div className="space-y-5">
+          {/* Export section */}
+          <div
+            className="p-5 rounded-xl"
+            style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+          >
+            <h3 className="text-lg font-semibold mb-1" style={{ color: "var(--foreground)" }}>
+              Export Backup
+            </h3>
+            <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+              Download a full backup of all your notes, sections, tags, and settings as a ZIP file.
+            </p>
+            <button
+              onClick={handleExportBackup}
+              disabled={exporting}
+              className="px-6 py-2.5 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 transition"
+              style={{ background: "var(--accent)" }}
+            >
+              {exporting ? "Exporting..." : "📦 Export Backup"}
+            </button>
+          </div>
+
+          {/* Import section */}
+          <div
+            className="p-5 rounded-xl"
+            style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+          >
+            <h3 className="text-lg font-semibold mb-1" style={{ color: "var(--foreground)" }}>
+              Import Backup
+            </h3>
+            <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>
+              Restore from a previously exported backup file.
+            </p>
+            <div
+              className="p-3 rounded-lg mb-4"
+              style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}
+            >
+              <p className="text-xs" style={{ color: "#ef4444" }}>
+                ⚠️ Importing a backup will <strong>REPLACE</strong> all your current data. This action cannot be undone.
+              </p>
+            </div>
+            <label
+              className="flex flex-col items-center justify-center gap-2 p-6 rounded-xl cursor-pointer transition hover:opacity-80"
+              style={{
+                border: "2px dashed rgba(255,255,255,0.15)",
+                background: "rgba(255,255,255,0.02)",
+              }}
+            >
+              <span className="text-2xl">📁</span>
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                {importing ? "Importing..." : "Click to select a .zip backup file"}
+              </span>
+              <input
+                type="file"
+                accept=".zip"
+                className="hidden"
+                disabled={importing}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImportBackup(file);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+
+          {/* Auto-backups list */}
+          <div
+            className="p-5 rounded-xl"
+            style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
+                  Auto-Backups
+                </h3>
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  Automatic backups created by the system.
+                </p>
+              </div>
+              <button
+                onClick={loadBackups}
+                disabled={backupsLoading}
+                className="px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80"
+                style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+              >
+                {backupsLoading ? "Loading..." : "🔄 Refresh"}
+              </button>
+            </div>
+
+            {backups.length === 0 ? (
+              <p className="text-sm text-center py-4" style={{ color: "var(--text-muted)" }}>
+                {backupsLoading ? "Loading backups..." : "No auto-backups found."}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {backups.map((b) => (
+                  <div
+                    key={b.filename}
+                    className="flex items-center justify-between p-3 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate" style={{ color: "var(--foreground)" }}>
+                        {b.filename}
+                      </p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {formatBytes(b.size_bytes)} · {new Date(b.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => downloadBackup(b.filename)}
+                      className="ml-3 px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80 shrink-0"
+                      style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+                    >
+                      ⬇️ Download
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : activeTab === "mcp" ? (
+        /* MCP Servers tab */
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
+                MCP Server Connections
+              </h3>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Configure external MCP servers to extend Atlas Note with additional tools.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setMcpEditing(null);
+                setMcpForm({ name: "", url: "", transport: "sse", api_key: "", description: "" });
+                setMcpFormOpen(true);
+                setMcpTestResult(null);
+              }}
+              className="px-4 py-2 text-white rounded-xl font-semibold hover:opacity-90 transition text-sm shrink-0"
+              style={{ background: "var(--accent)" }}
+            >
+              + Add Server
+            </button>
+          </div>
+
+          {/* Add/Edit form */}
+          {mcpFormOpen && (
+            <div
+              className="p-5 rounded-xl"
+              style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+            >
+              <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
+                {mcpEditing ? "Edit Server" : "Add Server"}
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={mcpForm.name}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="My MCP Server"
+                    className="w-full px-4 py-2.5 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--card-border)", color: "var(--foreground)" }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                    URL
+                  </label>
+                  <input
+                    type="text"
+                    value={mcpForm.url}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, url: e.target.value }))}
+                    placeholder="http://localhost:9000/sse"
+                    className="w-full px-4 py-2.5 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--card-border)", color: "var(--foreground)" }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                    Transport
+                  </label>
+                  <select
+                    value={mcpForm.transport}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, transport: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg"
+                    style={{ background: "#1a1735", border: "1px solid rgba(255,255,255,0.1)", color: "#e8e6f0" }}
+                  >
+                    <option value="sse" style={{ background: "#1a1735", color: "#e8e6f0" }}>SSE</option>
+                    <option value="stdio" style={{ background: "#1a1735", color: "#e8e6f0" }}>stdio</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                    API Key <span className="font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={mcpForm.api_key}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, api_key: e.target.value }))}
+                    placeholder={mcpEditing ? "Leave empty to keep current" : ""}
+                    className="w-full px-4 py-2.5 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--card-border)", color: "var(--foreground)" }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                    Description <span className="font-normal" style={{ color: "var(--text-muted)" }}>(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={mcpForm.description}
+                    onChange={(e) => setMcpForm((f) => ({ ...f, description: e.target.value }))}
+                    placeholder="What does this server provide?"
+                    className="w-full px-4 py-2.5 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--card-border)", color: "var(--foreground)" }}
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={handleMcpSave}
+                    disabled={!mcpForm.name || !mcpForm.url}
+                    className="px-6 py-2.5 text-white rounded-xl font-semibold hover:opacity-90 disabled:opacity-50 transition"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    {mcpEditing ? "Update" : "Add Server"}
+                  </button>
+                  <button
+                    onClick={() => { setMcpFormOpen(false); setMcpEditing(null); }}
+                    className="px-5 py-2.5 rounded-xl font-semibold transition hover:opacity-80"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Server list */}
+          {mcpLoading ? (
+            <p className="text-sm py-4" style={{ color: "var(--text-muted)" }}>Loading servers...</p>
+          ) : mcpServers.length === 0 && !mcpFormOpen ? (
+            <div
+              className="p-8 rounded-xl text-center"
+              style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+            >
+              <p className="text-lg mb-1" style={{ color: "var(--text-secondary)" }}>No MCP servers configured</p>
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Add an MCP server to extend Atlas Note with external tools and resources.
+              </p>
+            </div>
+          ) : (
+            mcpServers.map((server) => (
+              <div
+                key={server.id}
+                className="p-5 rounded-xl"
+                style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ background: server.enabled ? "#22c55e" : "#6b7280" }}
+                      />
+                      <h4 className="text-base font-semibold truncate" style={{ color: "var(--foreground)" }}>
+                        {server.name}
+                      </h4>
+                    </div>
+                    <p className="text-xs font-mono truncate" style={{ color: "var(--text-muted)" }}>
+                      {server.url}
+                    </p>
+                    {server.description && (
+                      <p className="text-sm mt-1" style={{ color: "var(--text-secondary)" }}>
+                        {server.description}
+                      </p>
+                    )}
+                    <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                      Transport: {server.transport} · Added {new Date(server.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => handleMcpToggle(server.id)}
+                      className="px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80"
+                      style={{
+                        background: server.enabled ? "rgba(34,197,94,0.1)" : "rgba(255,255,255,0.06)",
+                        color: server.enabled ? "#22c55e" : "var(--text-muted)",
+                        border: `1px solid ${server.enabled ? "rgba(34,197,94,0.2)" : "var(--card-border)"}`,
+                      }}
+                    >
+                      {server.enabled ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <button
+                    onClick={() => handleMcpTest(server.id)}
+                    disabled={mcpTesting === server.id}
+                    className="px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80 disabled:opacity-50"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+                  >
+                    {mcpTesting === server.id ? "Testing..." : "🔌 Test"}
+                  </button>
+                  <button
+                    onClick={() => openMcpEdit(server)}
+                    className="px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)", border: "1px solid var(--card-border)" }}
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => handleMcpDelete(server.id)}
+                    className="px-3 py-1.5 text-xs rounded-lg transition hover:opacity-80"
+                    style={{ background: "rgba(239,68,68,0.08)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.2)" }}
+                  >
+                    🗑 Delete
+                  </button>
+                </div>
+
+                {/* Test results for this server */}
+                {mcpTestResult && mcpTesting === null && mcpTestResult.status && (
+                  <div
+                    className="mt-3 p-3 rounded-lg"
+                    style={{
+                      background: mcpTestResult.status === "ok" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                      border: `1px solid ${mcpTestResult.status === "ok" ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"}`,
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span>{mcpTestResult.status === "ok" ? "✅" : "❌"}</span>
+                      <span className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
+                        {mcpTestResult.status === "ok"
+                          ? `Connected — ${mcpTestResult.tools_count || 0} tools`
+                          : "Connection failed"}
+                      </span>
+                    </div>
+                    {mcpTestResult.error && (
+                      <p className="text-xs font-mono" style={{ color: "#ef4444" }}>{mcpTestResult.error}</p>
+                    )}
+                    {mcpTestResult.tools && mcpTestResult.tools.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {mcpTestResult.tools.map((tool) => (
+                          <div key={tool.name} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.04)" }}>
+                            <span className="font-medium" style={{ color: "var(--foreground)" }}>{tool.name}</span>
+                            {tool.description && (
+                              <span style={{ color: "var(--text-muted)" }}> — {tool.description}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       ) : (
         /* Logs tab */
         <div>

@@ -154,3 +154,24 @@ class Todo(Base):
         Index("ix_todos_user", "user_id"),
         Index("ix_todos_user_done", "user_id", "is_done"),
     )
+
+
+class McpServerConfig(Base):
+    __tablename__ = "mcp_server_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    url = Column(String(2048), nullable=False)
+    transport = Column(String(50), default="sse")  # sse or stdio
+    api_key = Column(Text, nullable=True)
+    description = Column(Text, nullable=True)
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", backref="mcp_server_configs")
+
+    __table_args__ = (
+        Index("ix_mcp_configs_user", "user_id"),
+    )

@@ -426,3 +426,97 @@ export async function suggestTodos(noteId: string) {
 export async function dismissTodo(id: string) {
   return apiFetch(`/api/todos/${id}/dismiss`, { method: "POST" });
 }
+
+// Backup & Restore
+export async function exportBackup() {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/api/backup/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Export backup failed");
+  const blob = await res.blob();
+  const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "atlasnote_backup.zip";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function importBackup(file: File) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}/api/backup/import`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Import backup failed: ${res.status}`);
+  return res.json();
+}
+
+export async function listBackups() {
+  return apiFetch("/api/backup/list");
+}
+
+export async function downloadBackup(filename: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const res = await fetch(`${API_URL}/api/backup/download/${encodeURIComponent(filename)}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error("Download backup failed");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// MCP Connections
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  url: string;
+  transport: string;
+  api_key?: string | null;
+  description?: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listMcpServers(): Promise<McpServerConfig[]> {
+  return apiFetch("/api/mcp-connections/");
+}
+
+export async function createMcpServer(data: { name: string; url: string; transport?: string; api_key?: string; description?: string; enabled?: boolean }) {
+  return apiFetch("/api/mcp-connections/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateMcpServer(id: string, data: Partial<{ name: string; url: string; transport: string; api_key: string; description: string; enabled: boolean }>) {
+  return apiFetch(`/api/mcp-connections/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteMcpServer(id: string) {
+  return apiFetch(`/api/mcp-connections/${id}`, { method: "DELETE" });
+}
+
+export async function testMcpServer(id: string) {
+  return apiFetch(`/api/mcp-connections/${id}/test`, { method: "POST" }, LLM_TIMEOUT);
+}
+
+export async function toggleMcpServer(id: string) {
+  return apiFetch(`/api/mcp-connections/${id}/toggle`, { method: "POST" });
+}

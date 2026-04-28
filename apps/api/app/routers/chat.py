@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.models import User, Section, Note, NoteChunk
 from app.schemas import ChatRequest, ChatResponse, Citation
 from app.services.llm import get_chat_provider, get_embedding_provider, get_user_llm_config, get_chat_provider_from_config, get_embedding_provider_from_config
+from app.services.mcp_client import get_mcp_tools_for_user
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -169,7 +170,27 @@ async def stream_chat(
     chat = get_chat_provider_from_config(user_cfg)
     embed = get_embedding_provider_from_config(user_cfg)
 
+    # Discover MCP tools from user's configured servers
+    mcp_tools_map: dict[str, tuple] = {}  # openai_name → (mcp_client, real_tool_name, server_name)
+    extra_tools: list[dict] = []
+    try:
+        mcp_tools_data = await get_mcp_tools_for_user(user.id, db)
+        for server_name, openai_tool, mcp_client, real_name in mcp_tools_data:
+            openai_name = openai_tool["function"]["name"]
+            mcp_tools_map[openai_name] = (mcp_client, real_name, server_name)
+            extra_tools.append(openai_tool)
+    except Exception as e:
+        logger.warning(f"[Chat] Failed to load MCP tools: {e}")
+
+    # Combine built-in + MCP tools
+    all_tools = list(SEARCH_TOOLS) + extra_tools
+
     async def event_generator():
+        # Notify frontend about available MCP sources
+        if mcp_tools_map:
+            sources = list(set(v[2] for v in mcp_tools_map.values()))
+            yield f"data: {json.dumps({'type': 'mcp_sources', 'sources': sources})}\n\n"
+
         # Step 1: Try agentic approach with tool calling
         messages = [{"role": "system", "content": AGENTIC_SYSTEM_PROMPT}]
         for msg in data.history[-10:]:
@@ -181,7 +202,7 @@ async def stream_chat(
 
         for round_num in range(max_tool_rounds):
             try:
-                result = await chat.chat_with_tools(messages, SEARCH_TOOLS)
+                result = await chat.chat_with_tools(messages, all_tools)
             except Exception:
                 # Fall back to direct RAG
                 break
@@ -208,9 +229,17 @@ async def stream_chat(
 
                 yield f"data: {json.dumps({'type': 'tool_start', 'tool': fn_name, 'args': fn_args})}\n\n"
 
-                tool_result = await _execute_tool(fn_name, fn_args, user.id, db, embed_provider=embed)
-
-                yield f"data: {json.dumps({'type': 'tool_complete', 'tool': fn_name})}\n\n"
+                # Route to MCP client or built-in
+                if fn_name in mcp_tools_map:
+                    mcp_client, real_name, server_name = mcp_tools_map[fn_name]
+                    try:
+                        tool_result = await mcp_client.call_tool(real_name, fn_args)
+                    except Exception as e:
+                        tool_result = f"MCP tool error: {e}"
+                    yield f"data: {json.dumps({'type': 'tool_complete', 'tool': fn_name, 'source': server_name})}\n\n"
+                else:
+                    tool_result = await _execute_tool(fn_name, fn_args, user.id, db, embed_provider=embed)
+                    yield f"data: {json.dumps({'type': 'tool_complete', 'tool': fn_name})}\n\n"
 
                 messages.append({
                     "role": "tool",

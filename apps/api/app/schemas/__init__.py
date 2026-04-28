@@ -248,3 +248,42 @@ class TodoResponse(BaseModel):
 class TodoSuggestion(BaseModel):
     title: str
     description: str | None = None
+
+
+# ── MCP Server Configs ──
+
+class McpServerCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    url: str = Field(..., min_length=1)
+    transport: str = "sse"
+    api_key: str | None = None
+    description: str | None = None
+    enabled: bool = True
+
+
+class McpServerUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    url: str | None = None
+    transport: str | None = None
+    api_key: str | None = None
+    description: str | None = None
+    enabled: bool | None = None
+
+
+class McpServerResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    url: str
+    transport: str
+    description: str | None = None
+    enabled: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class McpToolInfo(BaseModel):
+    server_name: str
+    server_id: uuid.UUID
+    tools: list[dict]

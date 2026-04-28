@@ -47,6 +47,7 @@ function ChatContent() {
   const [toolSteps, setToolSteps] = useState<ToolStep[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [sectionFilter, setSectionFilter] = useState("");
+  const [mcpSources, setMcpSources] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
@@ -128,12 +129,17 @@ function ChatContent() {
             if (event.type === "content") {
               accumulated += event.text;
               setStreamingContent(accumulated);
+            } else if (event.type === "mcp_sources") {
+              setMcpSources(event.sources || []);
             } else if (event.type === "tool_start") {
               steps.push({ tool: event.tool, args: event.args, status: "running" });
               setToolSteps([...steps]);
             } else if (event.type === "tool_complete") {
               const step = steps.find((s) => s.tool === event.tool && s.status === "running");
-              if (step) step.status = "done";
+              if (step) {
+                step.status = "done";
+                if (event.source) (step as ToolStep & {source?: string}).source = event.source;
+              }
               setToolSteps([...steps]);
             } else if (event.type === "citations") {
               citations = event.citations || [];
@@ -237,7 +243,9 @@ function ChatContent() {
                       {step.status === "done" ? "✓" : "⟳"}
                     </span>
                     <span className="font-mono">
-                      {step.tool === "search_notes" ? `Searching: "${step.args?.query}"` : `Reading note`}
+                      {step.tool.startsWith("mcp_")
+                        ? `[${(step as ToolStep & {source?: string}).source || "MCP"}] ${step.tool.replace(/^mcp_[^_]+_/, "")}`
+                        : step.tool === "search_notes" ? `Searching: "${step.args?.query}"` : `Reading note`}
                     </span>
                   </div>
                 ))}
@@ -299,7 +307,9 @@ function ChatContent() {
                       {step.status === "done" ? "✓" : "⟳"}
                     </span>
                     <span className="font-mono">
-                      {step.tool === "search_notes" ? `Searching: "${step.args?.query}"` : `Reading note`}
+                      {step.tool.startsWith("mcp_")
+                        ? `[${(step as ToolStep & {source?: string}).source || "MCP"}] ${step.tool.replace(/^mcp_[^_]+_/, "")}`
+                        : step.tool === "search_notes" ? `Searching: "${step.args?.query}"` : `Reading note`}
                     </span>
                   </div>
                 ))}
@@ -323,6 +333,12 @@ function ChatContent() {
       </div>
 
       <div className="flex gap-2">
+        {mcpSources.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-1 text-xs" style={{ color: "var(--text-muted)" }}>
+            <span>🔌</span>
+            <span>Connected: {mcpSources.join(", ")}</span>
+          </div>
+        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
