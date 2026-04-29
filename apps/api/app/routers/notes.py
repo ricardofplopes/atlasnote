@@ -13,6 +13,7 @@ from app.models import User, Section, Note, NoteVersion, NoteChunk, NoteLink
 from app.schemas import (
     NoteCreate, NoteUpdate, NoteMoveRequest, NoteReorderRequest,
     NoteResponse, NoteVersionResponse,
+    SuggestSectionRequest, SuggestSectionResponse,
 )
 from app.routers.auth import get_current_user
 
@@ -578,6 +579,67 @@ Return ONLY the bullet points."""
         return {"suggestion": result.strip(), "mode": mode}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Writing assist failed: {str(e)}")
+
+
+@router.post("/suggest-section", response_model=SuggestSectionResponse)
+async def suggest_section(
+    body: SuggestSectionRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Suggest the best section for a note based on its title and content."""
+    import json as json_mod
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+
+    # Load all non-archived sections for this user
+    result = await db.execute(
+        select(Section).where(Section.user_id == user.id, Section.is_archived == False)
+    )
+    sections = result.scalars().all()
+    if not sections:
+        return SuggestSectionResponse(section_slug=None, confidence="low", reason="No sections available")
+
+    sections_list = "\n".join(
+        f'- slug: "{s.slug}" | name: "{s.name}" | description: "{s.description or ""}"'
+        for s in sections
+    )
+
+    content_preview = (body.content or "")[:1000]
+    prompt = f"""You are a note organization assistant. Given a note's title and content, suggest which section it belongs to.
+
+Note title: "{body.title}"
+Content preview: "{content_preview}"
+
+Available sections:
+{sections_list}
+
+Return a JSON object: {{"section_slug": "best-matching-slug", "confidence": "high/medium/low", "reason": "brief reason"}}
+If no section is a good fit, return: {{"section_slug": null, "confidence": "low", "reason": "No matching section found"}}
+Return ONLY valid JSON."""
+
+    user_cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(user_cfg)
+
+    try:
+        response = await provider.chat([
+            {"role": "system", "content": "You are a helpful assistant that returns only valid JSON."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.1)
+
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+        parsed = json_mod.loads(cleaned)
+        return SuggestSectionResponse(
+            section_slug=parsed.get("section_slug"),
+            confidence=parsed.get("confidence", "low"),
+            reason=parsed.get("reason", ""),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Section suggestion failed: {str(e)}")
 
 
 @router.post("/{note_id}/format-markdown")

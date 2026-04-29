@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -46,17 +46,33 @@ EXTRACT_TODOS_PROMPT = """You are a productivity assistant. Analyze the followin
 Look for:
 - Action items explicitly mentioned (e.g., "need to...", "should...", "TODO:", "follow up on...")
 - Commitments or promises made
-- Deadlines or time-sensitive tasks
+- Deadlines or time-sensitive tasks (infer due dates from context like "by Friday", "next week", "end of month")
 - Questions that need answers or research
+- Urgency indicators (e.g., "urgent", "ASAP", "critical", "blocker")
 
 Note title: {title}
+
+Today's date: {today}
 
 Note content (first 3000 chars):
 {content}
 
-Return a JSON array of TODO items. Each item should have "title" (short actionable description, max 100 chars) and optionally "description" (additional context). If no TODOs are found, return an empty array [].
+Return a JSON array of TODO items. Each item should have:
+- "title": short actionable description (max 100 chars)
+- "description": additional context (optional)
+- "priority": one of "urgent", "high", "medium", "low", "none" — infer from language urgency/importance
+- "due_date": ISO date string (YYYY-MM-DD) if a deadline is mentioned or can be reasonably inferred, otherwise null
 
-Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout by Friday"}}]
+Priority guidelines:
+- "urgent": explicit urgency words (ASAP, urgent, blocker, critical, immediately)
+- "high": important items with near deadlines or strong emphasis
+- "medium": standard action items with some importance
+- "low": nice-to-have, research, or exploratory tasks
+- "none": generic items with no urgency signal
+
+If no TODOs are found, return an empty array [].
+
+Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout", "priority": "high", "due_date": "2026-05-02"}}]
 
 Return ONLY valid JSON, no extra text."""
 
@@ -241,6 +257,7 @@ async def auto_suggest_todos(note_id, user_id, title: str, content: str, session
         prompt = EXTRACT_TODOS_PROMPT.format(
             title=title,
             content=content[:3000],
+            today=date.today().isoformat(),
         )
         result = await provider.chat([
             {"role": "system", "content": "You are a TODO extraction assistant. Return only valid JSON arrays."},
@@ -268,11 +285,26 @@ async def auto_suggest_todos(note_id, user_id, title: str, content: str, session
             if not todo_title:
                 continue
 
+            # Parse priority
+            raw_priority = str(suggestion.get("priority", "none")).lower().strip()
+            priority = raw_priority if raw_priority in ("urgent", "high", "medium", "low", "none") else "none"
+
+            # Parse due_date
+            raw_due = suggestion.get("due_date")
+            due_date_val = None
+            if raw_due:
+                try:
+                    due_date_val = date.fromisoformat(str(raw_due).strip())
+                except (ValueError, TypeError):
+                    pass
+
             todo = Todo(
                 user_id=user_id,
                 note_id=note_id,
                 title=todo_title[:500],
                 description=suggestion.get("description"),
+                priority=priority,
+                due_date=due_date_val,
                 is_suggested=True,
                 position=max_pos + 1 + i,
             )

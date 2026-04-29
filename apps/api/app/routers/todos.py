@@ -23,17 +23,33 @@ SUGGEST_TODOS_PROMPT = """You are a productivity assistant. Analyze the followin
 Look for:
 - Action items explicitly mentioned (e.g., "need to...", "should...", "TODO:", "follow up on...")
 - Commitments or promises made
-- Deadlines or time-sensitive tasks
+- Deadlines or time-sensitive tasks (infer due dates from context like "by Friday", "next week", "end of month")
 - Questions that need answers or research
+- Urgency indicators (e.g., "urgent", "ASAP", "critical", "blocker")
 
 Note title: {title}
+
+Today's date: {today}
 
 Note content:
 {content}
 
-Return a JSON array of TODO items. Each item should have "title" (short actionable description, max 100 chars) and optionally "description" (additional context). If no TODOs are found, return an empty array [].
+Return a JSON array of TODO items. Each item should have:
+- "title": short actionable description (max 100 chars)
+- "description": additional context (optional)
+- "priority": one of "urgent", "high", "medium", "low", "none" — infer from language urgency/importance
+- "due_date": ISO date string (YYYY-MM-DD) if a deadline is mentioned or can be reasonably inferred, otherwise null
 
-Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout by Friday"}}]
+Priority guidelines:
+- "urgent": explicit urgency words (ASAP, urgent, blocker, critical, immediately)
+- "high": important items with near deadlines or strong emphasis
+- "medium": standard action items with some importance
+- "low": nice-to-have, research, or exploratory tasks
+- "none": generic items with no urgency signal
+
+If no TODOs are found, return an empty array [].
+
+Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout", "priority": "high", "due_date": "2026-05-02"}}, {{"title": "Research caching options", "description": "Look into Redis vs in-memory", "priority": "low", "due_date": null}}]
 
 Return ONLY valid JSON, no extra text."""
 
@@ -195,6 +211,7 @@ async def suggest_todos(
     prompt = SUGGEST_TODOS_PROMPT.format(
         title=note.title,
         content=note.content[:4000],
+        today=date.today().isoformat(),
     )
 
     try:
@@ -225,11 +242,26 @@ async def suggest_todos(
         if not title:
             continue
 
+        # Parse priority
+        raw_priority = str(suggestion.get("priority", "none")).lower().strip()
+        priority = raw_priority if raw_priority in PRIORITY_ORDER else "none"
+
+        # Parse due_date
+        raw_due = suggestion.get("due_date")
+        due_date_val = None
+        if raw_due:
+            try:
+                due_date_val = date.fromisoformat(str(raw_due).strip())
+            except (ValueError, TypeError):
+                pass
+
         todo = Todo(
             user_id=user.id,
             note_id=note.id,
             title=title[:500],
             description=suggestion.get("description"),
+            priority=priority,
+            due_date=due_date_val,
             is_suggested=True,
             position=max_pos + 1 + i,
         )

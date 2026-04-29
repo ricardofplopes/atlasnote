@@ -376,6 +376,18 @@ class NoteTemplateResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Suggest Section ---
+class SuggestSectionRequest(BaseModel):
+    title: str
+    content: str = ""
+
+
+class SuggestSectionResponse(BaseModel):
+    section_slug: str | None = None
+    confidence: str = "low"
+    reason: str = ""
+
+
 # --- Reminders ---
 class ReminderResponse(BaseModel):
     id: uuid.UUID

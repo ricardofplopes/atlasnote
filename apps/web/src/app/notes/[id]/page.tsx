@@ -13,6 +13,7 @@ import {
   restoreVersion,
   getRelatedNotes,
   getBacklinks,
+  suggestLinks,
   formatNoteMarkdown,
   autoTagNote,
   exportNote,
@@ -201,6 +202,8 @@ function NoteContent() {
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [backlinks, setBacklinks] = useState<{note_id: string; note_title: string; link_text: string}[]>([]);
+  const [linkSuggestions, setLinkSuggestions] = useState<{note_id: string; note_title: string; reason: string}[] | null>(null);
+  const [linkSugLoading, setLinkSugLoading] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -801,6 +804,24 @@ function NoteContent() {
               >
                 {summaryLoading ? "..." : "📋 Summarize"}
               </button>
+              <button
+                onClick={async () => {
+                  setLinkSugLoading(true);
+                  try {
+                    const res = await suggestLinks(noteId);
+                    setLinkSuggestions(res || []);
+                  } catch {
+                    toastError("Link suggestion failed");
+                  } finally {
+                    setLinkSugLoading(false);
+                  }
+                }}
+                disabled={linkSugLoading}
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+              >
+                {linkSugLoading ? "..." : "🔗 Suggest Links"}
+              </button>
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                 {wordCount} words · {readingTime} min read
               </span>
@@ -814,6 +835,43 @@ function NoteContent() {
                 <button onClick={() => setSummary(null)} className="text-xs" style={{ color: "var(--text-muted)" }}>✕</button>
               </div>
               <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{summary}</p>
+            </div>
+          )}
+
+          {linkSuggestions && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: "#a78bfa" }}>🔗 Suggested Links</span>
+                <button onClick={() => setLinkSuggestions(null)} className="text-xs" style={{ color: "var(--text-muted)" }}>✕</button>
+              </div>
+              {linkSuggestions.length === 0 ? (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>No strong link suggestions found.</p>
+              ) : (
+                <div className="space-y-2">
+                  {linkSuggestions.map((ls) => (
+                    <div key={ls.note_id} className="flex items-center justify-between gap-2 p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                      <div className="min-w-0">
+                        <Link href={`/notes/${ls.note_id}`} className="text-sm font-medium hover:underline" style={{ color: "var(--foreground)" }}>
+                          {ls.note_title}
+                        </Link>
+                        <p className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>{ls.reason}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          const linkText = `[[${ls.note_title}]]`;
+                          setContent((prev) => prev + `\n\nSee also: ${linkText}`);
+                          setLinkSuggestions((prev) => prev?.filter((s) => s.note_id !== ls.note_id) || null);
+                          toastSuccess(`Linked to "${ls.note_title}"`);
+                        }}
+                        className="shrink-0 text-[10px] px-2 py-1 rounded-lg font-medium"
+                        style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
+                      >
+                        + Link
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

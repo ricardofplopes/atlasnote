@@ -526,6 +526,10 @@ export async function getBacklinks(noteId: string) {
   return apiFetch(`/api/note-links/${noteId}/backlinks`);
 }
 
+export async function suggestLinks(noteId: string) {
+  return apiFetch(`/api/note-links/${noteId}/suggest`, { method: "POST" }, LLM_TIMEOUT);
+}
+
 export async function searchNoteTitles(query: string) {
   return apiFetch(`/api/note-links/search-titles?q=${encodeURIComponent(query)}`);
 }
@@ -584,6 +588,13 @@ export async function seedWorkflows() {
 export function runWorkflowUrl(id: string) {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   return { url: `${API_URL}/api/workflows/${id}/run`, token };
+}
+
+export async function suggestSection(data: { title: string; content: string }) {
+  return apiFetch("/api/notes/suggest-section", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }, LLM_TIMEOUT);
 }
 
 // Reminders
