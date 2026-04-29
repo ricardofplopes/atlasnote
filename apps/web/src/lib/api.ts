@@ -397,14 +397,14 @@ export async function listTodos(filter: string = "all") {
   return apiFetch(`/api/todos?filter=${filter}`);
 }
 
-export async function createTodo(data: { title: string; description?: string; note_id?: string }) {
+export async function createTodo(data: { title: string; description?: string; note_id?: string; priority?: string; due_date?: string | null }) {
   return apiFetch("/api/todos", {
     method: "POST",
     body: JSON.stringify(data),
   });
 }
 
-export async function updateTodo(id: string, data: { title?: string; description?: string; is_done?: boolean }) {
+export async function updateTodo(id: string, data: { title?: string; description?: string; is_done?: boolean; priority?: string; due_date?: string | null }) {
   return apiFetch(`/api/todos/${id}`, {
     method: "PUT",
     body: JSON.stringify(data),

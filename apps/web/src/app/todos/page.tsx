@@ -12,10 +12,35 @@ interface Todo {
   description: string | null;
   is_done: boolean;
   is_suggested: boolean;
+  priority: string;
+  due_date: string | null;
   note_id: string | null;
   position: number;
   created_at: string;
   updated_at: string;
+}
+
+const PRIORITY_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: string }> = {
+  urgent: { label: "Urgent", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "#f87171", icon: "🔴" },
+  high:   { label: "High",   color: "#fb923c", bg: "rgba(251,146,60,0.12)", border: "#fb923c", icon: "🟠" },
+  medium: { label: "Medium", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "#fbbf24", icon: "🟡" },
+  low:    { label: "Low",    color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "#60a5fa", icon: "🔵" },
+  none:   { label: "None",   color: "var(--text-muted)", bg: "transparent", border: "var(--card-border)", icon: "" },
+};
+
+function getDueDateInfo(dueDateStr: string | null): { label: string; color: string; urgency: string } | null {
+  if (!dueDateStr) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDateStr + "T00:00:00");
+  const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) return { label: `Overdue (${Math.abs(diffDays)}d)`, color: "#f87171", urgency: "overdue" };
+  if (diffDays === 0) return { label: "Due today", color: "#fb923c", urgency: "today" };
+  if (diffDays === 1) return { label: "Tomorrow", color: "#fbbf24", urgency: "soon" };
+  if (diffDays <= 3) return { label: `In ${diffDays} days`, color: "#fbbf24", urgency: "soon" };
+  if (diffDays <= 7) return { label: `In ${diffDays} days`, color: "var(--text-secondary)", urgency: "week" };
+  return { label: due.toLocaleDateString(), color: "var(--text-muted)", urgency: "later" };
 }
 
 export default function TodosPage() {
@@ -27,6 +52,9 @@ function TodosContent() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [filter, setFilter] = useState("all");
   const [newTitle, setNewTitle] = useState("");
+  const [newPriority, setNewPriority] = useState("none");
+  const [newDueDate, setNewDueDate] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const { success: toastSuccess, error: toastError } = useToast();
@@ -50,12 +78,19 @@ function TodosContent() {
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
     try {
-      await createTodo({ title: newTitle.trim() });
+      await createTodo({
+        title: newTitle.trim(),
+        priority: newPriority,
+        due_date: newDueDate || undefined,
+      });
       setNewTitle("");
+      setNewPriority("none");
+      setNewDueDate("");
+      setShowAdvanced(false);
       inputRef.current?.focus();
       toastSuccess("Todo added");
       await loadTodos();
-    } catch (e) {
+    } catch {
       toastError("Failed to add todo");
     }
   };
@@ -64,7 +99,7 @@ function TodosContent() {
     try {
       await toggleTodo(id);
       await loadTodos();
-    } catch (e) {
+    } catch {
       toastError("Failed to toggle todo");
     }
   };
@@ -81,7 +116,7 @@ function TodosContent() {
       await deleteTodo(id);
       toastSuccess("Todo deleted");
       await loadTodos();
-    } catch (e) {
+    } catch {
       toastError("Failed to delete todo");
     }
   };
@@ -91,17 +126,17 @@ function TodosContent() {
       await dismissTodo(id);
       toastSuccess("Suggestion dismissed");
       await loadTodos();
-    } catch (e) {
+    } catch {
       toastError("Failed to dismiss suggestion");
     }
   };
 
-  const handleUpdate = async (id: string, data: { title?: string; description?: string }) => {
+  const handleUpdate = async (id: string, data: { title?: string; description?: string; priority?: string; due_date?: string | null }) => {
     try {
       await updateTodo(id, data);
       toastSuccess("Todo updated");
       await loadTodos();
-    } catch (e) {
+    } catch {
       toastError("Failed to update todo");
     }
   };
@@ -109,51 +144,120 @@ function TodosContent() {
   const filters = [
     { key: "all", label: "All" },
     { key: "active", label: "Active" },
+    { key: "overdue", label: "⏰ Overdue" },
+    { key: "high-priority", label: "🔥 Priority" },
     { key: "done", label: "Done" },
     { key: "suggested", label: "Suggested" },
   ];
 
   const activeTodos = todos.filter(t => !t.is_done);
   const doneTodos = todos.filter(t => t.is_done);
+  const overdueTodos = todos.filter(t => !t.is_done && t.due_date && getDueDateInfo(t.due_date)?.urgency === "overdue");
+
+  const selectStyle = {
+    background: "#1a1735",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#e8e6f0",
+  };
 
   return (
     <div className="max-w-3xl">
-      <h2 className="text-2xl font-display font-bold mb-6">TODOs</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-display font-bold">TODOs</h2>
+        {overdueTodos.length > 0 && (
+          <span
+            className="text-xs px-2.5 py-1 rounded-full font-semibold animate-pulse"
+            style={{ background: "rgba(248,113,113,0.15)", color: "#f87171" }}
+          >
+            ⏰ {overdueTodos.length} overdue
+          </span>
+        )}
+      </div>
 
       {/* Quick add */}
       <div
-        className="flex gap-2 mb-6 p-4 rounded-xl"
-        style={{
-          background: "var(--card-bg)",
-          border: "1px solid var(--card-border)",
-        }}
+        className="mb-6 p-4 rounded-xl"
+        style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
       >
-        <input
-          ref={inputRef}
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          placeholder="Add a new todo..."
-          className="flex-1 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 text-sm"
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid var(--card-border)",
-            color: "var(--foreground)",
-            ["--tw-ring-color" as string]: "var(--accent)",
-          }}
-        />
-        <button
-          onClick={handleCreate}
-          disabled={!newTitle.trim()}
-          className="px-5 py-2.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition"
-          style={{ background: "var(--accent)" }}
-        >
-          Add
-        </button>
+        <div className="flex gap-2">
+          <input
+            ref={inputRef}
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            placeholder="Add a new todo..."
+            className="flex-1 px-4 py-2.5 rounded-lg focus:outline-none focus:ring-2 text-sm"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
+            }}
+          />
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="px-3 py-2.5 rounded-lg text-sm transition-colors"
+            style={{
+              background: showAdvanced ? "var(--accent-soft)" : "rgba(255,255,255,0.04)",
+              color: showAdvanced ? "#a78bfa" : "var(--text-muted)",
+              border: showAdvanced ? "1px solid rgba(122,92,255,0.3)" : "1px solid var(--card-border)",
+            }}
+            title="Priority & due date"
+          >
+            ⚙️
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={!newTitle.trim()}
+            className="px-5 py-2.5 text-white text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 transition"
+            style={{ background: "var(--accent)" }}
+          >
+            Add
+          </button>
+        </div>
+        {showAdvanced && (
+          <div className="flex gap-3 mt-3 pt-3" style={{ borderTop: "1px solid var(--card-border)" }}>
+            <div className="flex items-center gap-2">
+              <label className="text-xs" style={{ color: "var(--text-muted)" }}>Priority:</label>
+              <select
+                value={newPriority}
+                onChange={(e) => setNewPriority(e.target.value)}
+                className="text-xs px-2.5 py-1.5 rounded-lg focus:outline-none"
+                style={selectStyle}
+              >
+                <option value="none">None</option>
+                <option value="low">🔵 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🟠 High</option>
+                <option value="urgent">🔴 Urgent</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs" style={{ color: "var(--text-muted)" }}>Due:</label>
+              <input
+                type="date"
+                value={newDueDate}
+                onChange={(e) => setNewDueDate(e.target.value)}
+                className="text-xs px-2.5 py-1.5 rounded-lg focus:outline-none"
+                style={selectStyle}
+              />
+              {newDueDate && (
+                <button
+                  onClick={() => setNewDueDate("")}
+                  className="text-xs px-1.5 rounded"
+                  style={{ color: "var(--text-muted)" }}
+                  title="Clear date"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-5">
+      <div className="flex gap-2 mb-5 flex-wrap">
         {filters.map((f) => (
           <button
             key={f.key}
@@ -200,6 +304,7 @@ function TodosContent() {
       {!loading && todos.length > 0 && (
         <div className="mt-6 text-xs" style={{ color: "var(--text-muted)" }}>
           {activeTodos.length} active · {doneTodos.length} completed
+          {overdueTodos.length > 0 && <span style={{ color: "#f87171" }}> · {overdueTodos.length} overdue</span>}
         </div>
       )}
     </div>
@@ -217,18 +322,31 @@ function TodoItem({
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onDismiss: (id: string) => void;
-  onUpdate: (id: string, data: { title?: string; description?: string }) => void;
+  onUpdate: (id: string, data: { title?: string; description?: string; priority?: string; due_date?: string | null }) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(todo.title);
   const [editDesc, setEditDesc] = useState(todo.description || "");
+  const [editPriority, setEditPriority] = useState(todo.priority || "none");
+  const [editDueDate, setEditDueDate] = useState(todo.due_date || "");
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const priorityCfg = PRIORITY_CONFIG[todo.priority] || PRIORITY_CONFIG.none;
+  const dueDateInfo = getDueDateInfo(todo.due_date);
+
+  const selectStyle = {
+    background: "#1a1735",
+    border: "1px solid rgba(255,255,255,0.1)",
+    color: "#e8e6f0",
+  };
 
   const handleSave = () => {
     if (!editTitle.trim()) return;
     onUpdate(todo.id, {
       title: editTitle.trim(),
       description: editDesc.trim() || undefined,
+      priority: editPriority,
+      due_date: editDueDate || null,
     });
     setEditing(false);
   };
@@ -236,6 +354,8 @@ function TodoItem({
   const handleCancel = () => {
     setEditTitle(todo.title);
     setEditDesc(todo.description || "");
+    setEditPriority(todo.priority || "none");
+    setEditDueDate(todo.due_date || "");
     setEditing(false);
   };
 
@@ -243,10 +363,7 @@ function TodoItem({
     return (
       <div
         className="p-4 rounded-xl space-y-2"
-        style={{
-          background: "var(--card-bg)",
-          border: "1px solid var(--accent)",
-        }}
+        style={{ background: "var(--card-bg)", border: "1px solid var(--accent)" }}
       >
         <input
           value={editTitle}
@@ -280,25 +397,45 @@ function TodoItem({
             ["--tw-ring-color" as string]: "var(--accent)",
           }}
         />
-        <div className="flex gap-2">
-          <button
-            onClick={handleSave}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white"
-            style={{ background: "var(--accent)" }}
-          >
-            Save
-          </button>
-          <button
-            onClick={handleCancel}
-            className="px-3 py-1.5 text-xs font-semibold rounded-lg"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Cancel
-          </button>
+        <div className="flex gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <label className="text-xs" style={{ color: "var(--text-muted)" }}>Priority:</label>
+            <select
+              value={editPriority}
+              onChange={(e) => setEditPriority(e.target.value)}
+              className="text-xs px-2.5 py-1.5 rounded-lg focus:outline-none"
+              style={selectStyle}
+            >
+              <option value="none">None</option>
+              <option value="low">🔵 Low</option>
+              <option value="medium">🟡 Medium</option>
+              <option value="high">🟠 High</option>
+              <option value="urgent">🔴 Urgent</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs" style={{ color: "var(--text-muted)" }}>Due:</label>
+            <input
+              type="date"
+              value={editDueDate}
+              onChange={(e) => setEditDueDate(e.target.value)}
+              className="text-xs px-2.5 py-1.5 rounded-lg focus:outline-none"
+              style={selectStyle}
+            />
+            {editDueDate && (
+              <button onClick={() => setEditDueDate("")} className="text-xs px-1.5 rounded" style={{ color: "var(--text-muted)" }} title="Clear date">✕</button>
+            )}
+          </div>
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleSave} className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white" style={{ background: "var(--accent)" }}>Save</button>
+          <button onClick={handleCancel} className="px-3 py-1.5 text-xs font-semibold rounded-lg" style={{ color: "var(--text-muted)" }}>Cancel</button>
         </div>
       </div>
     );
   }
+
+  const leftBorderColor = todo.priority && todo.priority !== "none" ? priorityCfg.border : "transparent";
 
   return (
     <div
@@ -306,6 +443,7 @@ function TodoItem({
       style={{
         background: "var(--card-bg)",
         border: "1px solid var(--card-border)",
+        borderLeft: `3px solid ${leftBorderColor}`,
       }}
     >
       {/* Checkbox */}
@@ -326,19 +464,41 @@ function TodoItem({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <p
             className={`text-sm font-medium ${todo.is_done ? "line-through" : ""}`}
             style={{ color: todo.is_done ? "var(--text-muted)" : "var(--foreground)" }}
           >
             {todo.title}
           </p>
+          {todo.priority && todo.priority !== "none" && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+              style={{ background: priorityCfg.bg, color: priorityCfg.color }}
+            >
+              {priorityCfg.icon} {priorityCfg.label}
+            </span>
+          )}
           {todo.is_suggested && (
             <span
               className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
               style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
             >
               ✨ Suggested
+            </span>
+          )}
+          {dueDateInfo && !todo.is_done && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+              style={{
+                background: dueDateInfo.urgency === "overdue" ? "rgba(248,113,113,0.15)"
+                  : dueDateInfo.urgency === "today" ? "rgba(251,146,60,0.15)"
+                  : dueDateInfo.urgency === "soon" ? "rgba(251,191,36,0.12)"
+                  : "rgba(255,255,255,0.04)",
+                color: dueDateInfo.color,
+              }}
+            >
+              📅 {dueDateInfo.label}
             </span>
           )}
         </div>

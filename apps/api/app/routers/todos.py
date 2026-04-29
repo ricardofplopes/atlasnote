@@ -1,10 +1,11 @@
 import json
 import logging
 import re
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 
 from app.core.database import get_db
 from app.models import User, Note, Todo
@@ -14,6 +15,8 @@ from app.routers.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+PRIORITY_ORDER = {"urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
 
 SUGGEST_TODOS_PROMPT = """You are a productivity assistant. Analyze the following note and extract any actionable TODO items.
 
@@ -41,7 +44,7 @@ async def list_todos(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List todos. Filter: all, active, done, suggested."""
+    """List todos. Filter: all, active, done, suggested, overdue, high-priority."""
     query = select(Todo).where(Todo.user_id == user.id)
 
     if filter == "active":
@@ -50,8 +53,31 @@ async def list_todos(
         query = query.where(Todo.is_done == True)
     elif filter == "suggested":
         query = query.where(Todo.is_suggested == True, Todo.is_done == False)
+    elif filter == "overdue":
+        query = query.where(Todo.due_date < date.today(), Todo.is_done == False)
+    elif filter == "high-priority":
+        query = query.where(Todo.priority.in_(["urgent", "high"]), Todo.is_done == False)
 
-    query = query.order_by(Todo.is_done.asc(), Todo.position.asc(), Todo.created_at.desc())
+    # Sort: done last, then overdue first, then priority desc, then position
+    priority_rank = case(
+        (Todo.priority == "urgent", 4),
+        (Todo.priority == "high", 3),
+        (Todo.priority == "medium", 2),
+        (Todo.priority == "low", 1),
+        else_=0,
+    )
+    overdue_rank = case(
+        (Todo.due_date < date.today(), 0),  # overdue first
+        (Todo.due_date != None, 1),
+        else_=2,
+    )
+    query = query.order_by(
+        Todo.is_done.asc(),
+        overdue_rank.asc(),
+        priority_rank.desc(),
+        Todo.position.asc(),
+        Todo.created_at.desc(),
+    )
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -73,6 +99,8 @@ async def create_todo(
         title=data.title,
         description=data.description,
         note_id=data.note_id,
+        priority=data.priority,
+        due_date=data.due_date,
         position=max_pos + 1,
     )
     db.add(todo)
@@ -101,6 +129,11 @@ async def update_todo(
         todo.description = data.description
     if data.is_done is not None:
         todo.is_done = data.is_done
+    if data.priority is not None:
+        todo.priority = data.priority
+    # due_date: set if explicitly provided (even null to clear)
+    if "due_date" in data.model_fields_set:
+        todo.due_date = data.due_date
 
     await db.flush()
     return todo

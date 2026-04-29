@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Text, Boolean, Integer, DateTime, ForeignKey, JSON, Index
+    Column, String, Text, Boolean, Integer, DateTime, Date, ForeignKey, JSON, Index
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -143,6 +143,8 @@ class Todo(Base):
     description = Column(Text, nullable=True)
     is_done = Column(Boolean, default=False)
     is_suggested = Column(Boolean, default=False)
+    priority = Column(String(10), default="none", nullable=False)
+    due_date = Column(Date, nullable=True)
     position = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

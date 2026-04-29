@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from pydantic import BaseModel, Field
 
 
@@ -223,12 +223,16 @@ class TodoCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     description: str | None = None
     note_id: uuid.UUID | None = None
+    priority: str = Field("none", pattern="^(none|low|medium|high|urgent)$")
+    due_date: date | None = None
 
 
 class TodoUpdate(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=500)
     description: str | None = None
     is_done: bool | None = None
+    priority: str | None = Field(None, pattern="^(none|low|medium|high|urgent)$")
+    due_date: date | None = None
 
 
 class TodoResponse(BaseModel):
@@ -237,6 +241,8 @@ class TodoResponse(BaseModel):
     description: str | None = None
     is_done: bool
     is_suggested: bool
+    priority: str = "none"
+    due_date: date | None = None
     note_id: uuid.UUID | None = None
     position: int = 0
     created_at: datetime

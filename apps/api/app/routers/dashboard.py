@@ -1,7 +1,7 @@
 """Dashboard router — aggregated user activity and insights."""
 import json
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -25,6 +25,7 @@ class ActivityStats(BaseModel):
     notes_this_month: int
     sections_count: int
     todos_pending: int
+    todos_overdue: int
 
 
 class RecentNote(BaseModel):
@@ -48,6 +49,8 @@ class PendingTodo(BaseModel):
     id: str
     title: str
     note_id: str | None = None
+    priority: str = "none"
+    due_date: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -123,12 +126,20 @@ async def get_dashboard(
     )
     todos_pending = todos_result.scalar()
 
+    overdue_result = await db.execute(
+        select(func.count())
+        .select_from(Todo)
+        .where(Todo.user_id == user.id, Todo.is_done == False, Todo.due_date < date.today())
+    )
+    todos_overdue = overdue_result.scalar()
+
     activity = ActivityStats(
         notes_today=notes_today,
         notes_this_week=notes_this_week,
         notes_this_month=notes_this_month,
         sections_count=sections_count,
         todos_pending=todos_pending,
+        todos_overdue=todos_overdue,
     )
 
     # Recent notes (last 8 updated)
@@ -165,11 +176,24 @@ async def get_dashboard(
         for row in pinned_result.all()
     ]
 
-    # Pending todos (top 5)
+    # Pending todos (top 5, sorted by priority)
+    from sqlalchemy import case as sa_case
+    priority_rank = sa_case(
+        (Todo.priority == "urgent", 4),
+        (Todo.priority == "high", 3),
+        (Todo.priority == "medium", 2),
+        (Todo.priority == "low", 1),
+        else_=0,
+    )
+    overdue_rank = sa_case(
+        (Todo.due_date < date.today(), 0),
+        (Todo.due_date != None, 1),
+        else_=2,
+    )
     todos_query_result = await db.execute(
-        select(Todo.id, Todo.title, Todo.note_id)
+        select(Todo.id, Todo.title, Todo.note_id, Todo.priority, Todo.due_date)
         .where(Todo.user_id == user.id, Todo.is_done == False)
-        .order_by(Todo.position.asc(), Todo.created_at.desc())
+        .order_by(overdue_rank.asc(), priority_rank.desc(), Todo.position.asc())
         .limit(5)
     )
     pending_todos = [
@@ -177,6 +201,8 @@ async def get_dashboard(
             id=str(row.id),
             title=row.title,
             note_id=str(row.note_id) if row.note_id else None,
+            priority=row.priority or "none",
+            due_date=str(row.due_date) if row.due_date else None,
         )
         for row in todos_query_result.all()
     ]
