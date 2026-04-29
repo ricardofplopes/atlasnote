@@ -232,7 +232,7 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
 
   return (
     <aside
-      className="flex flex-col h-full border-r overflow-hidden"
+      className="flex flex-col h-full border-r"
       style={{
         width: width || 260,
         minWidth: width || 260,
@@ -271,7 +271,7 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
             </button>
             {showReminders && (
               <div
-                className="absolute left-0 top-full mt-1 z-50 w-72 rounded-xl shadow-2xl overflow-hidden"
+                className="absolute right-0 top-full mt-1 z-[9999] w-72 rounded-xl shadow-2xl overflow-hidden"
                 style={{ background: "#1a1735", border: "1px solid rgba(122,92,255,0.2)" }}
               >
                 <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
