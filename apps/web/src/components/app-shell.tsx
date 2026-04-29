@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </svg>
           </button>
         )}
-        <div className="p-6 lg:p-8">{children}</div>
+        <div className="px-6 pb-6 lg:px-8 lg:pb-8" style={{ paddingTop: sidebarOpen ? undefined : '4rem' }}>{children}</div>
       </main>
     </div>
   );
