@@ -520,3 +520,85 @@ export async function testMcpServer(id: string) {
 export async function toggleMcpServer(id: string) {
   return apiFetch(`/api/mcp-connections/${id}/toggle`, { method: "POST" });
 }
+
+// Note Links
+export async function getBacklinks(noteId: string) {
+  return apiFetch(`/api/note-links/${noteId}/backlinks`);
+}
+
+export async function searchNoteTitles(query: string) {
+  return apiFetch(`/api/note-links/search-titles?q=${encodeURIComponent(query)}`);
+}
+
+// Templates
+export async function listTemplates() {
+  return apiFetch("/api/templates/");
+}
+
+export async function createTemplate(data: { name: string; description?: string; content: string; default_tags?: string[]; icon?: string }) {
+  return apiFetch("/api/templates/", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function updateTemplate(id: string, data: Partial<{ name: string; description: string; content: string; default_tags: string[]; icon: string; position: number }>) {
+  return apiFetch(`/api/templates/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export async function deleteTemplate(id: string) {
+  return apiFetch(`/api/templates/${id}`, { method: "DELETE" });
+}
+
+export async function seedTemplates() {
+  return apiFetch("/api/templates/seed", { method: "POST" });
+}
+
+// Dashboard
+export async function getDashboard() {
+  return apiFetch("/api/dashboard/");
+}
+
+export async function generateDigest() {
+  return apiFetch("/api/dashboard/digest", { method: "POST" }, LLM_TIMEOUT);
+}
+
+// AI Workflows
+export async function listWorkflows() {
+  return apiFetch("/api/workflows/");
+}
+
+export async function createWorkflow(data: { name: string; description?: string; prompt_template: string; context_mode?: string; icon?: string }) {
+  return apiFetch("/api/workflows/", { method: "POST", body: JSON.stringify(data) });
+}
+
+export async function updateWorkflow(id: string, data: Partial<{ name: string; description: string; prompt_template: string; context_mode: string; icon: string; position: number }>) {
+  return apiFetch(`/api/workflows/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export async function deleteWorkflow(id: string) {
+  return apiFetch(`/api/workflows/${id}`, { method: "DELETE" });
+}
+
+export async function seedWorkflows() {
+  return apiFetch("/api/workflows/seed", { method: "POST" });
+}
+
+export function runWorkflowUrl(id: string) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  return { url: `${API_URL}/api/workflows/${id}/run`, token };
+}
+
+// Reminders
+export async function listReminders() {
+  return apiFetch("/api/reminders/");
+}
+
+export async function getReminderCount() {
+  return apiFetch("/api/reminders/count");
+}
+
+export async function dismissReminder(id: string) {
+  return apiFetch(`/api/reminders/${id}/dismiss`, { method: "POST" });
+}
+
+export async function convertReminderToTodo(id: string) {
+  return apiFetch(`/api/reminders/${id}/convert-todo`, { method: "POST" });
+}

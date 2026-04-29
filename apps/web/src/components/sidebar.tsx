@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useCommandPalette } from "@/components/command-palette";
-import { useEffect, useState } from "react";
-import { listSections, createSection } from "@/lib/api";
+import { useEffect, useState, useRef } from "react";
+import { listSections, createSection, getReminderCount, listReminders, dismissReminder, convertReminderToTodo } from "@/lib/api";
 
 interface Section {
   id: string;
@@ -105,12 +105,25 @@ function IconTodos({ className }: { className?: string }) {
   );
 }
 
+function IconWorkflows({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <circle cx="10" cy="4.5" r="2" />
+      <circle cx="5" cy="15" r="2" />
+      <circle cx="15" cy="15" r="2" />
+      <path d="M10 6.5v3M8.5 11l-2 2.5M11.5 11l2 2.5" strokeLinecap="round" />
+      <circle cx="10" cy="10.5" r="1.5" />
+    </svg>
+  );
+}
+
 const navItems = [
-  { href: "/", label: "Recent Notes", Icon: IconRecentNotes },
+  { href: "/", label: "Dashboard", Icon: IconRecentNotes },
   { href: "/todos", label: "TODOs", Icon: IconTodos },
   { href: "/search", label: "Search", Icon: IconSearch },
   { href: "/chat", label: "Chat", Icon: IconChat },
   { href: "/wiki", label: "Wiki", Icon: IconWiki },
+  { href: "/workflows", label: "Workflows", Icon: IconWorkflows },
   { href: "/graph", label: "Graph", Icon: IconGraph },
   { href: "/import", label: "Import", Icon: IconImport },
   { href: "/deleted", label: "Deleted", Icon: IconDeleted },
@@ -124,6 +137,14 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
   const [sections, setSections] = useState<Section[]>([]);
   const [newSection, setNewSection] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [reminderCount, setReminderCount] = useState(0);
+  const [showReminders, setShowReminders] = useState(false);
+  const [reminders, setReminders] = useState<{
+    id: string; title: string; due_date: string; note_id?: string;
+    note_title?: string; is_dismissed: boolean; source_text?: string;
+  }[]>([]);
+  const [loadingReminders, setLoadingReminders] = useState(false);
+  const reminderRef = useRef<HTMLDivElement>(null);
 
   const loadSections = () => {
     listSections().then(setSections).catch(console.error);
@@ -132,6 +153,68 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
   useEffect(() => {
     if (user) loadSections();
   }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      getReminderCount().then((r) => setReminderCount(r?.count || 0)).catch(() => {});
+    }
+  }, [user]);
+
+  // Close reminders panel when clicking outside
+  useEffect(() => {
+    if (!showReminders) return;
+    const handleClick = (e: MouseEvent) => {
+      if (reminderRef.current && !reminderRef.current.contains(e.target as Node)) {
+        setShowReminders(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [showReminders]);
+
+  const openReminders = async () => {
+    setShowReminders(!showReminders);
+    if (!showReminders) {
+      setLoadingReminders(true);
+      try {
+        const data = await listReminders();
+        setReminders((data || []).filter((r: { is_dismissed: boolean }) => !r.is_dismissed));
+      } catch {
+        setReminders([]);
+      } finally {
+        setLoadingReminders(false);
+      }
+    }
+  };
+
+  const handleDismissReminder = async (id: string) => {
+    try {
+      await dismissReminder(id);
+      setReminders((prev) => prev.filter((r) => r.id !== id));
+      setReminderCount((prev) => Math.max(0, prev - 1));
+    } catch {}
+  };
+
+  const handleConvertToTodo = async (id: string) => {
+    try {
+      await convertReminderToTodo(id);
+      setReminders((prev) => prev.filter((r) => r.id !== id));
+      setReminderCount((prev) => Math.max(0, prev - 1));
+    } catch {}
+  };
+
+  const formatDueDate = (dateStr: string) => {
+    const due = new Date(dateStr);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const diffDays = Math.round((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Tomorrow";
+    if (diffDays <= 7) return `In ${diffDays} days`;
+    return due.toLocaleDateString();
+  };
 
   useEffect(() => {
     const handleRefresh = () => loadSections();
@@ -166,6 +249,90 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
           </h1>
         </div>
         <div className="flex items-center gap-1">
+          {/* Reminders bell */}
+          <div className="relative" ref={reminderRef}>
+            <button
+              onClick={openReminders}
+              className="p-1.5 rounded-lg relative transition-colors"
+              style={{ color: reminderCount > 0 ? '#a78bfa' : 'var(--text-muted)' }}
+              title="Reminders"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+              </svg>
+              {reminderCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold text-white"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  {reminderCount > 99 ? '99+' : reminderCount}
+                </span>
+              )}
+            </button>
+            {showReminders && (
+              <div
+                className="absolute left-0 top-full mt-1 z-50 w-72 rounded-xl shadow-2xl overflow-hidden"
+                style={{ background: "#1a1735", border: "1px solid rgba(122,92,255,0.2)" }}
+              >
+                <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  Reminders
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {loadingReminders ? (
+                    <div className="p-4 text-center text-xs" style={{ color: "var(--text-muted)" }}>Loading…</div>
+                  ) : reminders.length === 0 ? (
+                    <div className="p-4 text-center text-xs" style={{ color: "var(--text-muted)" }}>No active reminders</div>
+                  ) : (
+                    reminders.map((r) => (
+                      <div
+                        key={r.id}
+                        className="px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
+                        style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+                      >
+                        <div className="text-sm font-medium truncate" style={{ color: "var(--foreground)" }}>{r.title}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            background: formatDueDate(r.due_date) === "Today" || formatDueDate(r.due_date).includes("overdue")
+                              ? "rgba(248,113,113,0.15)" : "rgba(122,92,255,0.12)",
+                            color: formatDueDate(r.due_date) === "Today" || formatDueDate(r.due_date).includes("overdue")
+                              ? "#f87171" : "#a78bfa",
+                          }}>
+                            {formatDueDate(r.due_date)}
+                          </span>
+                          {r.note_id && (
+                            <Link
+                              href={`/notes/${r.note_id}`}
+                              className="text-[10px] truncate hover:underline"
+                              style={{ color: "var(--accent)" }}
+                              onClick={() => setShowReminders(false)}
+                            >
+                              {r.note_title || "View note"}
+                            </Link>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <button
+                            onClick={() => handleDismissReminder(r.id)}
+                            className="text-[10px] px-2 py-0.5 rounded-md"
+                            style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                          >
+                            Dismiss
+                          </button>
+                          <button
+                            onClick={() => handleConvertToTodo(r.id)}
+                            className="text-[10px] px-2 py-0.5 rounded-md"
+                            style={{ color: "#a78bfa", background: "rgba(122,92,255,0.12)" }}
+                          >
+                            → Todo
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           {onClose && (
             <button onClick={onClose} className="p-1 rounded" style={{ color: 'var(--text-muted)' }} title="Collapse sidebar">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">

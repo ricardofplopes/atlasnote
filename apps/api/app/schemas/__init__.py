@@ -287,3 +287,98 @@ class McpToolInfo(BaseModel):
     server_name: str
     server_id: uuid.UUID
     tools: list[dict]
+
+
+# --- Note Links ---
+class NoteLinkResponse(BaseModel):
+    id: uuid.UUID
+    source_note_id: uuid.UUID
+    target_note_id: uuid.UUID
+    link_text: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class BacklinkResponse(BaseModel):
+    note_id: uuid.UUID
+    note_title: str
+    link_text: str
+
+
+# --- AI Workflows ---
+class AiWorkflowCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    prompt_template: str = Field(..., min_length=1)
+    context_mode: str = "current_note"
+    icon: str | None = None
+
+
+class AiWorkflowUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    prompt_template: str | None = None
+    context_mode: str | None = None
+    icon: str | None = None
+    position: int | None = None
+
+
+class AiWorkflowResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    prompt_template: str
+    context_mode: str
+    icon: str | None = None
+    position: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Note Templates ---
+class NoteTemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    content: str = ""
+    default_tags: list[str] | None = None
+    icon: str | None = None
+
+
+class NoteTemplateUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    content: str | None = None
+    default_tags: list[str] | None = None
+    icon: str | None = None
+    position: int | None = None
+
+
+class NoteTemplateResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None = None
+    content: str
+    default_tags: list[str] | None = None
+    icon: str | None = None
+    position: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Reminders ---
+class ReminderResponse(BaseModel):
+    id: uuid.UUID
+    note_id: uuid.UUID | None = None
+    title: str
+    due_date: datetime | None = None
+    is_dismissed: bool
+    source_text: str | None = None
+    note_title: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

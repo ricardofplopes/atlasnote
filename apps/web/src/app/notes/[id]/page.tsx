@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   getNote,
   updateNote,
@@ -11,11 +12,13 @@ import {
   listVersions,
   restoreVersion,
   getRelatedNotes,
+  getBacklinks,
   formatNoteMarkdown,
   autoTagNote,
   exportNote,
   summarizeNote,
   writingAssist,
+  createTemplate,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
@@ -197,6 +200,10 @@ function NoteContent() {
   const [aiLoading, setAiLoading] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [backlinks, setBacklinks] = useState<{note_id: string; note_title: string; link_text: string}[]>([]);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
@@ -214,6 +221,7 @@ function NoteContent() {
 
   useEffect(() => {
     load();
+    getBacklinks(noteId).then(setBacklinks).catch(() => setBacklinks([]));
   }, [noteId]);
 
   const performSave = useCallback(async (silent = false) => {
@@ -378,6 +386,16 @@ function NoteContent() {
           Export
         </button>
         <button
+          onClick={() => setShowSaveTemplate(!showSaveTemplate)}
+          className="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+          style={{
+            background: showSaveTemplate ? 'rgba(122,92,255,0.15)' : 'rgba(255,255,255,0.06)',
+            color: showSaveTemplate ? '#a78bfa' : 'var(--text-secondary)',
+          }}
+        >
+          📋 Template
+        </button>
+        <button
           onClick={() => setEditing(!editing)}
           className="px-3 py-1.5 text-sm font-semibold rounded-lg text-white transition-colors hover:opacity-90"
           style={{ background: 'var(--accent)' }}
@@ -395,6 +413,84 @@ function NoteContent() {
           {note.is_deleted ? "Restore" : "Delete"}
         </button>
       </div>
+
+      {/* Save as Template mini-form */}
+      {showSaveTemplate && (
+        <div
+          className="mb-4 p-4 rounded-xl space-y-3"
+          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+        >
+          <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>Save as Template</p>
+          <input
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && templateName.trim()) {
+                (async () => {
+                  setSavingTemplate(true);
+                  try {
+                    await createTemplate({
+                      name: templateName.trim(),
+                      content: note.content,
+                      default_tags: note.tags || [],
+                    });
+                    toastSuccess("Template saved");
+                    setShowSaveTemplate(false);
+                    setTemplateName("");
+                  } catch {
+                    toastError("Failed to save template");
+                  } finally {
+                    setSavingTemplate(false);
+                  }
+                })();
+              }
+            }}
+            placeholder="Template name"
+            className="w-full px-3 py-2 rounded-lg text-sm focus:outline-none focus:ring-2"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid var(--card-border)",
+              color: "var(--foreground)",
+              ["--tw-ring-color" as string]: "var(--accent)",
+            }}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                if (!templateName.trim()) return;
+                setSavingTemplate(true);
+                try {
+                  await createTemplate({
+                    name: templateName.trim(),
+                    content: note.content,
+                    default_tags: note.tags || [],
+                  });
+                  toastSuccess("Template saved");
+                  setShowSaveTemplate(false);
+                  setTemplateName("");
+                } catch {
+                  toastError("Failed to save template");
+                } finally {
+                  setSavingTemplate(false);
+                }
+              }}
+              disabled={savingTemplate || !templateName.trim()}
+              className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white disabled:opacity-40"
+              style={{ background: "var(--accent)" }}
+            >
+              {savingTemplate ? "Saving…" : "Save Template"}
+            </button>
+            <button
+              onClick={() => { setShowSaveTemplate(false); setTemplateName(""); }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {editing ? (
         <div className="space-y-4">
@@ -662,6 +758,25 @@ function NoteContent() {
           >
             <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{note.content}</ReactMarkdown>
           </div>
+          {backlinks.length > 0 && (
+            <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.15)" }}>
+              <h4 className="text-xs font-semibold uppercase mb-2" style={{ color: "var(--text-muted)" }}>
+                🔗 Linked from ({backlinks.length})
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {backlinks.map((bl) => (
+                  <Link
+                    key={bl.note_id}
+                    href={`/notes/${bl.note_id}`}
+                    className="text-xs px-2.5 py-1 rounded-lg transition-colors hover:opacity-80"
+                    style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+                  >
+                    {bl.note_title}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between mt-4">
             <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
               Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}

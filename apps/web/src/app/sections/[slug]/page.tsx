@@ -15,6 +15,8 @@ import {
   autoTagNote,
   formatContent,
   exportSection,
+  listTemplates,
+  seedTemplates,
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
@@ -332,48 +334,43 @@ function SectionContent() {
     return "";
   };
 
-  const NOTE_TEMPLATES = [
-    {
-      name: "Blank",
-      icon: "📄",
-      content: "",
-      tags: "",
-    },
-    {
-      name: "Meeting Notes",
-      icon: "📋",
-      content: "## Attendees\n\n- \n\n## Agenda\n\n1. \n\n## Discussion\n\n\n\n## Action Items\n\n- [ ] \n",
-      tags: "meeting",
-    },
-    {
-      name: "1-on-1",
-      icon: "👥",
-      content: "## Topics\n\n- \n\n## Updates\n\n\n\n## Action Items\n\n- [ ] \n\n## Notes\n\n",
-      tags: "1on1",
-    },
-    {
-      name: "Daily Log",
-      icon: "📅",
-      content: "## What I did today\n\n- \n\n## Blockers\n\n- \n\n## Tomorrow's plan\n\n- \n",
-      tags: "daily",
-    },
-    {
-      name: "Project Update",
-      icon: "🚀",
-      content: "## Status\n\n🟢 On track / 🟡 At risk / 🔴 Blocked\n\n## Progress\n\n- \n\n## Risks & Blockers\n\n- \n\n## Next Steps\n\n- \n",
-      tags: "project",
-    },
-    {
-      name: "Research",
-      icon: "🔬",
-      content: "## Topic\n\n\n\n## Key Findings\n\n- \n\n## Sources\n\n- \n\n## Conclusions\n\n",
-      tags: "research",
-    },
-  ];
+  interface Template {
+    id: string;
+    name: string;
+    description?: string;
+    content: string;
+    default_tags?: string[];
+    icon?: string;
+  }
 
-  const applyTemplate = (template: typeof NOTE_TEMPLATES[number]) => {
+  const [apiTemplates, setApiTemplates] = useState<Template[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+
+  const loadTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const templates = await listTemplates();
+      setApiTemplates(templates || []);
+    } catch {
+      setApiTemplates([]);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const handleSeedTemplates = async () => {
+    try {
+      await seedTemplates();
+      toastSuccess("Starter templates created");
+      await loadTemplates();
+    } catch {
+      toastError("Failed to seed templates");
+    }
+  };
+
+  const applyApiTemplate = (template: Template) => {
     if (template.content) setNewContent(template.content);
-    if (template.tags) setNewTags(template.tags);
+    if (template.default_tags?.length) setNewTags(template.default_tags.join(", "));
     setShowTemplates(false);
   };
 
@@ -607,7 +604,11 @@ function SectionContent() {
           {/* Template picker */}
           <div>
             <button
-              onClick={() => setShowTemplates(!showTemplates)}
+              onClick={() => {
+                const next = !showTemplates;
+                setShowTemplates(next);
+                if (next && apiTemplates.length === 0) loadTemplates();
+              }}
               className="text-xs px-2.5 py-1 rounded-lg hover-accent"
               style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.04)" }}
               type="button"
@@ -616,22 +617,40 @@ function SectionContent() {
             </button>
             {showTemplates && (
               <div className="flex flex-wrap gap-2 mt-2">
-                {NOTE_TEMPLATES.map((tmpl) => (
+                {loadingTemplates ? (
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>Loading templates…</span>
+                ) : apiTemplates.length === 0 ? (
                   <button
-                    key={tmpl.name}
-                    onClick={() => applyTemplate(tmpl)}
+                    onClick={handleSeedTemplates}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg hover-subtle"
                     style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid var(--card-border)",
-                      color: "var(--text-secondary)",
+                      background: "rgba(122,92,255,0.1)",
+                      border: "1px solid rgba(122,92,255,0.25)",
+                      color: "#a78bfa",
                     }}
                     type="button"
                   >
-                    <span>{tmpl.icon}</span>
-                    <span>{tmpl.name}</span>
+                    <span>🌱</span>
+                    <span>Seed starter templates</span>
                   </button>
-                ))}
+                ) : (
+                  apiTemplates.map((tmpl) => (
+                    <button
+                      key={tmpl.id}
+                      onClick={() => applyApiTemplate(tmpl)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg hover-subtle"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid var(--card-border)",
+                        color: "var(--text-secondary)",
+                      }}
+                      type="button"
+                    >
+                      <span>{tmpl.icon || "📄"}</span>
+                      <span>{tmpl.name}</span>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>

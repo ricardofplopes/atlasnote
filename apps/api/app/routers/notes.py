@@ -9,7 +9,7 @@ from sqlalchemy import select, func, case, literal_column
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models import User, Section, Note, NoteVersion, NoteChunk
+from app.models import User, Section, Note, NoteVersion, NoteChunk, NoteLink
 from app.schemas import (
     NoteCreate, NoteUpdate, NoteMoveRequest, NoteReorderRequest,
     NoteResponse, NoteVersionResponse,
@@ -136,6 +136,10 @@ async def create_note(
     )
     db.add(note)
     await db.flush()
+
+    # Parse [[wiki-style]] links
+    from app.routers.note_links import parse_and_store_links
+    await parse_and_store_links(note.id, note.content, user.id, db)
 
     # Create initial version
     await _create_version(note, db)
@@ -414,6 +418,28 @@ async def get_graph_data(
                     "shared_tags": list(shared),
                 })
 
+    # Compute explicit link edges (from [[wiki-style]] links)
+    link_edges = []
+    try:
+        link_result = await db.execute(
+            select(NoteLink.source_note_id, NoteLink.target_note_id, NoteLink.link_text)
+            .where(NoteLink.source_note_id.in_(note_ids))
+        )
+        note_id_set = set(str(nid) for nid in note_ids)
+        for row in link_result.all():
+            src = str(row.source_note_id)
+            tgt = str(row.target_note_id)
+            if tgt in note_id_set:
+                link_edges.append({
+                    "source": src,
+                    "target": tgt,
+                    "score": 1.0,
+                    "type": "link",
+                    "link_text": row.link_text,
+                })
+    except Exception as e:
+        _logger.warning(f"Failed to compute link edges: {e}")
+
     nodes = []
     for row in notes_rows:
         nid = str(row.id)
@@ -429,7 +455,7 @@ async def get_graph_data(
             "chunk_count": status["total"],
         })
 
-    all_edges = semantic_edges + tag_edges
+    all_edges = semantic_edges + tag_edges + link_edges
     unique_sections = list(set(n["section"] for n in nodes))
 
     return {
@@ -440,6 +466,7 @@ async def get_graph_data(
             "total_connections": len(all_edges),
             "semantic_connections": len(semantic_edges),
             "tag_connections": len(tag_edges),
+            "link_connections": len(link_edges),
             "sections": len(unique_sections),
             "notes_with_embeddings": notes_with_emb,
             "notes_without_embeddings": notes_without_emb,
@@ -726,6 +753,12 @@ async def update_note(
     if data.source_url is not None:
         note.source_url = data.source_url
     note.updated_at = datetime.now(timezone.utc)
+
+    # Re-parse [[wiki-style]] links on content change
+    if data.content is not None:
+        from app.routers.note_links import parse_and_store_links
+        await parse_and_store_links(note.id, note.content, user.id, db)
+
     return note
 
 

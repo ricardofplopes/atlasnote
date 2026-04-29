@@ -175,3 +175,84 @@ class McpServerConfig(Base):
     __table_args__ = (
         Index("ix_mcp_configs_user", "user_id"),
     )
+
+
+class NoteLink(Base):
+    __tablename__ = "note_links"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
+    target_note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
+    link_text = Column(String(500), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    source_note = relationship("Note", foreign_keys=[source_note_id], backref="outgoing_links")
+    target_note = relationship("Note", foreign_keys=[target_note_id], backref="incoming_links")
+
+    __table_args__ = (
+        Index("ix_note_links_source", "source_note_id"),
+        Index("ix_note_links_target", "target_note_id"),
+    )
+
+
+class AiWorkflow(Base):
+    __tablename__ = "ai_workflows"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    prompt_template = Column(Text, nullable=False)
+    context_mode = Column(String(50), default="current_note")  # current_note, section_notes, all_notes, none
+    icon = Column(String(10), nullable=True)
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", backref="ai_workflows")
+
+    __table_args__ = (
+        Index("ix_ai_workflows_user", "user_id"),
+    )
+
+
+class NoteTemplate(Base):
+    __tablename__ = "note_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    content = Column(Text, nullable=False, default="")
+    default_tags = Column(JSON, nullable=True)
+    icon = Column(String(10), nullable=True)
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", backref="note_templates")
+
+    __table_args__ = (
+        Index("ix_note_templates_user", "user_id"),
+    )
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=True)
+    title = Column(String(500), nullable=False)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    is_dismissed = Column(Boolean, default=False)
+    source_text = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    user = relationship("User", backref="reminders")
+    note = relationship("Note", backref="reminders")
+
+    __table_args__ = (
+        Index("ix_reminders_user", "user_id"),
+        Index("ix_reminders_user_active", "user_id", "is_dismissed"),
+    )

@@ -10,7 +10,7 @@ import {
   ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { listSections, listRecentNotes, listTodos } from "@/lib/api";
+import { listSections, listRecentNotes, listTodos, listWorkflows, semanticSearch } from "@/lib/api";
 
 interface CommandItem {
   id: string;
@@ -18,7 +18,8 @@ interface CommandItem {
   description?: string;
   icon: string;
   action: () => void;
-  category: "navigation" | "notes" | "sections" | "todos" | "actions";
+  category: "navigate" | "create" | "ai" | "search" | "notes" | "sections" | "todos";
+  shortcut?: string;
 }
 
 interface CommandPaletteContextType {
@@ -67,21 +68,38 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<CommandItem[]>([]);
   const [filteredItems, setFilteredItems] = useState<CommandItem[]>([]);
+  const [searchResults, setSearchResults] = useState<CommandItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const listRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [firstSectionSlug, setFirstSectionSlug] = useState<string | null>(null);
 
   // Navigation items (always available)
   const navigationItems: CommandItem[] = [
-    { id: "nav-home", label: "Recent Notes", description: "Go to homepage", icon: "📝", action: () => router.push("/"), category: "navigation" },
-    { id: "nav-todos", label: "TODOs", description: "Manage your tasks", icon: "✅", action: () => router.push("/todos"), category: "navigation" },
-    { id: "nav-search", label: "Search", description: "Semantic search", icon: "🔍", action: () => router.push("/search"), category: "navigation" },
-    { id: "nav-chat", label: "Chat", description: "AI-powered Q&A", icon: "💬", action: () => router.push("/chat"), category: "navigation" },
-    { id: "nav-wiki", label: "Wiki", description: "Generate wiki from notes", icon: "📖", action: () => router.push("/wiki"), category: "navigation" },
-    { id: "nav-graph", label: "Knowledge Graph", description: "Visualize connections", icon: "🕸️", action: () => router.push("/graph"), category: "navigation" },
-    { id: "nav-import", label: "Import", description: "Import files", icon: "📥", action: () => router.push("/import"), category: "navigation" },
-    { id: "nav-deleted", label: "Deleted Notes", description: "Restore deleted notes", icon: "🗑️", action: () => router.push("/deleted"), category: "navigation" },
-    { id: "nav-settings", label: "Settings", description: "LLM configuration", icon: "⚙️", action: () => router.push("/settings"), category: "navigation" },
+    { id: "nav-home", label: "Recent Notes", description: "Go to homepage", icon: "📝", action: () => router.push("/"), category: "navigate", shortcut: "" },
+    { id: "nav-todos", label: "TODOs", description: "Manage your tasks", icon: "✅", action: () => router.push("/todos"), category: "navigate" },
+    { id: "nav-search", label: "Search", description: "Semantic search", icon: "🔍", action: () => router.push("/search"), category: "navigate", shortcut: "Ctrl+K" },
+    { id: "nav-chat", label: "Chat", description: "AI-powered Q&A", icon: "💬", action: () => router.push("/chat"), category: "navigate" },
+    { id: "nav-wiki", label: "Wiki", description: "Generate wiki from notes", icon: "📖", action: () => router.push("/wiki"), category: "navigate" },
+    { id: "nav-graph", label: "Knowledge Graph", description: "Visualize connections", icon: "🕸️", action: () => router.push("/graph"), category: "navigate" },
+    { id: "nav-import", label: "Import", description: "Import files", icon: "📥", action: () => router.push("/import"), category: "navigate" },
+    { id: "nav-deleted", label: "Deleted Notes", description: "Restore deleted notes", icon: "🗑️", action: () => router.push("/deleted"), category: "navigate" },
+    { id: "nav-settings", label: "Settings", description: "LLM configuration", icon: "⚙️", action: () => router.push("/settings"), category: "navigate" },
+  ];
+
+  // Create actions
+  const createItems: CommandItem[] = [
+    {
+      id: "create-note", label: "New Note", description: "Create a new note", icon: "📄",
+      action: () => {
+        if (firstSectionSlug) router.push(`/sections/${firstSectionSlug}?new=true`);
+        else router.push("/");
+      },
+      category: "create", shortcut: "Ctrl+N",
+    },
+    { id: "create-todo", label: "New Todo", description: "Create a new todo", icon: "☑️", action: () => router.push("/todos?new=true"), category: "create" },
+    { id: "create-section", label: "New Section", description: "Create a new section", icon: "📁", action: () => router.push("/"), category: "create" },
   ];
 
   // Load dynamic items
@@ -89,11 +107,23 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     const loadItems = async () => {
       setLoading(true);
       try {
-        const [notes, sections, todos] = await Promise.all([
+        const [notes, sections, todos, workflows] = await Promise.all([
           listRecentNotes(50).catch(() => []),
           listSections().catch(() => []),
           listTodos("active").catch(() => []),
+          listWorkflows().catch(() => []),
         ]);
+
+        // Track first section for "New Note"
+        const flatSections: { slug: string }[] = [];
+        const flattenForSlug = (secs: Record<string, unknown>[]) => {
+          for (const s of secs) {
+            flatSections.push({ slug: s.slug as string });
+            if (Array.isArray(s.children)) flattenForSlug(s.children);
+          }
+        };
+        flattenForSlug(sections || []);
+        if (flatSections.length > 0) setFirstSectionSlug(flatSections[0].slug);
 
         const noteItems: CommandItem[] = (notes || []).map((n: Record<string, string>) => ({
           id: `note-${n.id}`,
@@ -134,9 +164,18 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
           category: "todos" as const,
         }));
 
-        setItems([...navigationItems, ...sectionItems, ...noteItems, ...todoItems]);
+        const workflowItems: CommandItem[] = (workflows || []).map((w: Record<string, string>) => ({
+          id: `workflow-${w.id}`,
+          label: w.name,
+          description: w.description || "AI Workflow",
+          icon: w.icon || "🤖",
+          action: () => router.push(`/workflows?run=${w.id}`),
+          category: "ai" as const,
+        }));
+
+        setItems([...navigationItems, ...createItems, ...workflowItems, ...sectionItems, ...noteItems, ...todoItems]);
       } catch {
-        setItems(navigationItems);
+        setItems([...navigationItems, ...createItems]);
       }
       setLoading(false);
     };
@@ -144,6 +183,35 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     loadItems();
     inputRef.current?.focus();
   }, []);
+
+  // Debounced semantic search when query is 3+ chars
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (query.trim().length < 3) {
+      setSearchResults([]);
+      return;
+    }
+
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await semanticSearch(query.trim(), undefined, 5);
+        const searchItems: CommandItem[] = (results || []).slice(0, 5).map((r: Record<string, string>) => ({
+          id: `search-${r.note_id || r.id}`,
+          label: r.title || r.note_title || "Untitled",
+          description: (r.snippet || r.chunk_text || "").slice(0, 80),
+          icon: "🔎",
+          action: () => router.push(`/notes/${r.note_id || r.id}`),
+          category: "search" as const,
+        }));
+        setSearchResults(searchItems);
+      } catch {
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [query]);
 
   // Filter items based on query
   useEffect(() => {
@@ -176,24 +244,27 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     setSelectedIndex(0);
   }, [query, items]);
 
+  // Combine filtered items with search results
+  const allDisplayItems = [...filteredItems, ...searchResults];
+
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, filteredItems.length - 1));
+        setSelectedIndex((prev) => Math.min(prev + 1, allDisplayItems.length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelectedIndex((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === "Enter" && filteredItems[selectedIndex]) {
+      } else if (e.key === "Enter" && allDisplayItems[selectedIndex]) {
         e.preventDefault();
-        filteredItems[selectedIndex].action();
+        allDisplayItems[selectedIndex].action();
         onClose();
       } else if (e.key === "Escape") {
         onClose();
       }
     },
-    [filteredItems, selectedIndex, onClose]
+    [allDisplayItems, selectedIndex, onClose]
   );
 
   // Scroll selected item into view
@@ -206,20 +277,25 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     }
   }, [selectedIndex]);
 
-  // Group filtered items by category
-  const grouped = filteredItems.reduce<Record<string, CommandItem[]>>((acc, item) => {
+  // Group all display items by category
+  const grouped = allDisplayItems.reduce<Record<string, CommandItem[]>>((acc, item) => {
     if (!acc[item.category]) acc[item.category] = [];
     acc[item.category].push(item);
     return acc;
   }, {});
 
   const categoryLabels: Record<string, string> = {
-    navigation: "Navigation",
+    navigate: "🧭 Navigate",
+    create: "➕ Create",
+    ai: "🤖 AI Workflows",
+    search: "🔍 Search Results",
     sections: "Sections",
     notes: "Notes",
     todos: "TODOs",
-    actions: "Actions",
   };
+
+  // Ordered category display
+  const categoryOrder = ["navigate", "create", "ai", "search", "sections", "notes", "todos"];
 
   let globalIndex = -1;
 
@@ -270,61 +346,74 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
             <div className="p-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>
               Loading…
             </div>
-          ) : filteredItems.length === 0 ? (
+          ) : allDisplayItems.length === 0 ? (
             <div className="p-6 text-center">
               <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                 No results for &ldquo;{query}&rdquo;
               </p>
             </div>
           ) : (
-            Object.entries(grouped).map(([category, categoryItems]) => (
-              <div key={category}>
-                <div
-                  className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {categoryLabels[category] || category}
-                </div>
-                {categoryItems.map((item) => {
-                  globalIndex++;
-                  const idx = globalIndex;
-                  const isSelected = idx === selectedIndex;
-                  return (
-                    <button
-                      key={item.id}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
-                      style={{
-                        background: isSelected ? "rgba(122,92,255,0.15)" : "transparent",
-                        color: isSelected ? "var(--foreground)" : "var(--text-secondary)",
-                      }}
-                      onClick={() => {
-                        item.action();
-                        onClose();
-                      }}
-                      onMouseEnter={() => setSelectedIndex(idx)}
+            categoryOrder
+              .filter((cat) => grouped[cat] && grouped[cat].length > 0)
+              .map((category) => {
+                const categoryItems = grouped[category];
+                return (
+                  <div key={category}>
+                    <div
+                      className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider"
+                      style={{ color: "var(--text-muted)" }}
                     >
-                      <span className="text-base shrink-0">{item.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium truncate block">{item.label}</span>
-                        {item.description && (
-                          <span className="text-xs truncate block" style={{ color: "var(--text-muted)" }}>
-                            {item.description}
-                          </span>
-                        )}
-                      </div>
-                      {isSelected && (
-                        <kbd
-                          className="text-[10px] px-1.5 py-0.5 rounded"
-                          style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+                      {categoryLabels[category] || category}
+                    </div>
+                    {categoryItems.map((item) => {
+                      globalIndex++;
+                      const idx = globalIndex;
+                      const isSelected = idx === selectedIndex;
+                      return (
+                        <button
+                          key={item.id}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors"
+                          style={{
+                            background: isSelected ? "rgba(122,92,255,0.15)" : "transparent",
+                            color: isSelected ? "var(--foreground)" : "var(--text-secondary)",
+                          }}
+                          onClick={() => {
+                            item.action();
+                            onClose();
+                          }}
+                          onMouseEnter={() => setSelectedIndex(idx)}
                         >
-                          ↵
-                        </kbd>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            ))
+                          <span className="text-base shrink-0">{item.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium truncate block">{item.label}</span>
+                            {item.description && (
+                              <span className="text-xs truncate block" style={{ color: "var(--text-muted)" }}>
+                                {item.description}
+                              </span>
+                            )}
+                          </div>
+                          {item.shortcut && (
+                            <kbd
+                              className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                              style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+                            >
+                              {item.shortcut}
+                            </kbd>
+                          )}
+                          {isSelected && !item.shortcut && (
+                            <kbd
+                              className="text-[10px] px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+                            >
+                              ↵
+                            </kbd>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
           )}
         </div>
 
@@ -336,6 +425,7 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
           <span>↑↓ Navigate</span>
           <span>↵ Open</span>
           <span>Esc Close</span>
+          {query.trim().length >= 3 && <span className="ml-auto">Semantic search active</span>}
         </div>
       </div>
     </div>
