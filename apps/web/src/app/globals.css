@@ -66,6 +66,8 @@ body {
   --tw-prose-pre-bg: rgba(255, 255, 255, 0.04);
   --tw-prose-pre-code: var(--foreground);
   --tw-prose-hr: rgba(255, 255, 255, 0.1);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Focus styles for accessibility */
