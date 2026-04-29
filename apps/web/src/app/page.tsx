@@ -255,9 +255,9 @@ function DashboardContent() {
               onChange={(e) => setCaptureSection(e.target.value)}
               className="px-3 py-2 rounded-lg text-sm outline-none cursor-pointer"
               style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid var(--card-border)",
-                color: "var(--text-secondary)",
+                background: "#1a1735",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#e8e6f0",
               }}
             >
               {sections.map((s) => (

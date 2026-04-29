@@ -32,6 +32,23 @@ body {
   color: var(--foreground);
 }
 
+/* Dark theme for all select dropdowns and options */
+select,
+select option {
+  background-color: #1a1735;
+  color: #e8e6f0;
+}
+
+select option:checked {
+  background-color: #7A5CFF;
+  color: #fff;
+}
+
+/* Fix date input color scheme for dark theme */
+input[type="date"] {
+  color-scheme: dark;
+}
+
 /* Display font utility for headings and branding */
 .font-display {
   font-family: var(--font-display);

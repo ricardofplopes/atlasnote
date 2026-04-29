@@ -84,9 +84,9 @@ function WikiContent() {
             onChange={(e) => setSelectedSlug(e.target.value)}
             className="flex-1 px-4 py-3 rounded-xl"
             style={{
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid var(--card-border)",
-              color: "var(--foreground)",
+              background: "#1a1735",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "#e8e6f0",
             }}
           >
             <option value="" style={{ background: "#1a1735", color: "#e8e6f0" }}>Select a section...</option>
