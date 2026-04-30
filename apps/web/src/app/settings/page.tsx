@@ -5,6 +5,7 @@ import {
   getSettings, updateSettings, testLlmConnection, getLlmLogs, clearLlmLogs,
   exportBackup, importBackup, listBackups, downloadBackup,
   listMcpServers, createMcpServer, updateMcpServer, deleteMcpServer, testMcpServer, toggleMcpServer,
+  getOllamaModels, pullOllamaModel,
   McpServerConfig,
 } from "@/lib/api";
 import { useToast } from "@/components/toast";
@@ -184,6 +185,13 @@ function SettingsContent() {
   const [mcpTesting, setMcpTesting] = useState<string | null>(null);
   const [mcpTestResult, setMcpTestResult] = useState<{status: string; tools_count?: number; tools?: {name: string; description: string}[]; error?: string} | null>(null);
 
+  // Ollama model management state
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaStatus, setOllamaStatus] = useState<"idle" | "loading" | "ok" | "unreachable">("idle");
+  const [ollamaRecommended, setOllamaRecommended] = useState<{chat: {name: string; description: string; size: string; recommended: boolean}[]; embedding: {name: string; description: string; size: string; recommended: boolean}[]}>({chat: [], embedding: []});
+  const [pullingModel, setPullingModel] = useState<string | null>(null);
+  const [pullProgress, setPullProgress] = useState("");
+
   useEffect(() => {
     getSettings()
       .then((data: { settings: Record<string, string> }) => {
@@ -240,6 +248,71 @@ function SettingsContent() {
   useEffect(() => {
     if (activeTab === "mcp") loadMcpServers();
   }, [activeTab, loadMcpServers]);
+
+  // Load Ollama models when provider is ollama
+  const loadOllamaModels = useCallback(async () => {
+    setOllamaStatus("loading");
+    try {
+      const data = await getOllamaModels();
+      if (data.status === "ok") {
+        setOllamaModels(data.installed || []);
+        setOllamaRecommended(data.recommended || {chat: [], embedding: []});
+        setOllamaStatus("ok");
+      } else {
+        setOllamaStatus("unreachable");
+        setOllamaRecommended(data.recommended || {chat: [], embedding: []});
+      }
+    } catch {
+      setOllamaStatus("unreachable");
+    }
+  }, []);
+
+  useEffect(() => {
+    const isOllama = values.llm_provider === "ollama" || values.embedding_provider === "ollama";
+    if (isOllama && ollamaStatus === "idle") {
+      loadOllamaModels();
+    }
+  }, [values.llm_provider, values.embedding_provider, ollamaStatus, loadOllamaModels]);
+
+  const handlePullModel = async (modelName: string) => {
+    setPullingModel(modelName);
+    setPullProgress("Starting download...");
+    try {
+      const stream = await pullOllamaModel(modelName);
+      if (!stream) { setPullingModel(null); return; }
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let lastStatus = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        for (const line of text.split("\n").filter(Boolean)) {
+          try {
+            const obj = JSON.parse(line);
+            if (obj.status) {
+              if (obj.total && obj.completed) {
+                const pct = Math.round((obj.completed / obj.total) * 100);
+                lastStatus = `${obj.status} ${pct}%`;
+              } else {
+                lastStatus = obj.status;
+              }
+            }
+            if (obj.error) lastStatus = `Error: ${obj.error}`;
+          } catch { /* skip non-JSON lines */ }
+        }
+        setPullProgress(lastStatus);
+      }
+      setPullProgress("Done!");
+      setOllamaModels((prev) => [...prev, modelName]);
+      toastSuccess(`Model "${modelName}" installed successfully`);
+    } catch (e) {
+      setPullProgress("Failed");
+      toastError(`Failed to pull ${modelName}`);
+    } finally {
+      setTimeout(() => { setPullingModel(null); setPullProgress(""); }, 2000);
+    }
+  };
 
   const handleExportBackup = async () => {
     setExporting(true);
@@ -532,21 +605,93 @@ function SettingsContent() {
                             }}
                           />
                           {suggestions.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5 mt-2">
-                              {suggestions.map((s) => (
-                                <button
-                                  key={s}
-                                  onClick={() => setValues((v) => ({ ...v, [field.key]: s }))}
-                                  className="px-2.5 py-1 text-xs rounded-md transition-all"
-                                  style={{
-                                    background: values[field.key] === s ? "var(--accent)" : "rgba(255,255,255,0.06)",
-                                    color: values[field.key] === s ? "#fff" : "var(--text-secondary)",
-                                    border: "1px solid " + (values[field.key] === s ? "var(--accent)" : "rgba(255,255,255,0.08)"),
-                                  }}
-                                >
-                                  {s}
-                                </button>
-                              ))}
+                            <div className="mt-2">
+                              {(() => {
+                                const providerKey = field.key === "embedding_model" ? "embedding_provider" : "llm_provider";
+                                const isOllamaField = values[providerKey] === "ollama";
+                                const category = field.key === "embedding_model" ? "embedding" : "chat";
+                                const recommended = isOllamaField ? ollamaRecommended[category] || [] : [];
+
+                                if (isOllamaField && recommended.length > 0) {
+                                  return (
+                                    <div className="space-y-1.5">
+                                      {ollamaStatus === "loading" && (
+                                        <p className="text-xs" style={{ color: "var(--text-muted)" }}>Checking installed models...</p>
+                                      )}
+                                      {ollamaStatus === "unreachable" && (
+                                        <p className="text-xs" style={{ color: "#f87171" }}>⚠️ Cannot reach Ollama. Models shown may not be installed.</p>
+                                      )}
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {recommended.map((m) => {
+                                          const installed = ollamaModels.includes(m.name);
+                                          const isSelected = values[field.key] === m.name;
+                                          const isPulling = pullingModel === m.name;
+                                          return (
+                                            <div key={m.name} className="relative group">
+                                              <button
+                                                onClick={() => {
+                                                  if (!installed && !isPulling) {
+                                                    handlePullModel(m.name);
+                                                  }
+                                                  setValues((v) => ({ ...v, [field.key]: m.name }));
+                                                }}
+                                                disabled={isPulling}
+                                                className="px-2.5 py-1 text-xs rounded-md transition-all flex items-center gap-1.5"
+                                                style={{
+                                                  background: isSelected ? "var(--accent)" : isPulling ? "rgba(251,191,36,0.15)" : "rgba(255,255,255,0.06)",
+                                                  color: isSelected ? "#fff" : isPulling ? "#fbbf24" : "var(--text-secondary)",
+                                                  border: `1px solid ${isSelected ? "var(--accent)" : m.recommended ? "rgba(122,92,255,0.3)" : "rgba(255,255,255,0.08)"}`,
+                                                }}
+                                              >
+                                                {installed ? (
+                                                  <span style={{ color: isSelected ? "#fff" : "#4ade80" }}>✓</span>
+                                                ) : isPulling ? (
+                                                  <span className="animate-spin">⟳</span>
+                                                ) : (
+                                                  <span style={{ color: "#fbbf24" }}>↓</span>
+                                                )}
+                                                {m.name}
+                                                {m.recommended && <span className="text-[9px] opacity-60">★</span>}
+                                              </button>
+                                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50" style={{ background: "#1a1735", border: "1px solid rgba(255,255,255,0.1)", color: "var(--text-secondary)" }}>
+                                                {m.description} ({m.size}){!installed && " — click to install"}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                      {pullingModel && (
+                                        <div className="flex items-center gap-2 mt-1.5 px-2 py-1 rounded-lg text-xs" style={{ background: "rgba(251,191,36,0.08)", color: "#fbbf24" }}>
+                                          <span className="animate-spin">⟳</span>
+                                          <span>Installing {pullingModel}: {pullProgress}</span>
+                                        </div>
+                                      )}
+                                      <p className="text-[10px] mt-1" style={{ color: "var(--text-muted)" }}>
+                                        ✓ = installed • ↓ = click to install • ★ = recommended
+                                      </p>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {suggestions.map((s) => (
+                                      <button
+                                        key={s}
+                                        onClick={() => setValues((v) => ({ ...v, [field.key]: s }))}
+                                        className="px-2.5 py-1 text-xs rounded-md transition-all"
+                                        style={{
+                                          background: values[field.key] === s ? "var(--accent)" : "rgba(255,255,255,0.06)",
+                                          color: values[field.key] === s ? "#fff" : "var(--text-secondary)",
+                                          border: "1px solid " + (values[field.key] === s ? "var(--accent)" : "rgba(255,255,255,0.08)"),
+                                        }}
+                                      >
+                                        {s}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>

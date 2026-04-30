@@ -259,6 +259,22 @@ export async function clearLlmLogs() {
   return apiFetch("/api/settings/logs", { method: "DELETE" });
 }
 
+export async function getOllamaModels() {
+  return apiFetch("/api/settings/ollama/models");
+}
+
+export async function pullOllamaModel(model: string): Promise<ReadableStream<Uint8Array> | null> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}/api/settings/ollama/pull`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ model }),
+  });
+  return res.body;
+}
+
 // Import
 export async function uploadFilesForImport(files: File[]) {
   const token =
