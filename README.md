@@ -18,15 +18,32 @@
 - **Note Export** — Export individual notes as .md or entire sections as .zip
 - **Semantic Search** — Chunk and embed note content, search by meaning via pgvector
 - **Grounded Chat/Q&A** — Ask questions about your notes, get answers with citations
-- **TODOs** — Manual task management with LLM-powered auto-suggestions from notes
-- **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search
+- **Wiki Synthesis** — Auto-generate wiki pages from section notes
+- **TODOs** — Manual task management with priority levels, due dates, and reminders
+- **AI-Powered Todos** — LLM auto-suggests todos from notes with inferred priority and due dates
+- **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search, entity nodes
 - **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections with console logging
 - **LLM Settings** — Per-user provider configuration, test connection, activity logs
-- **Command Palette** — Ctrl+K quick search across notes, sections, and pages
+- **Ollama Model Management** — Browse recommended models, see install status, pull models with streaming progress
+- **Command Palette** — Ctrl+K quick search across notes, sections, pages, and natural language commands
 - **Toast Notifications** — Visual feedback for all actions (save, delete, export, etc.)
 - **MCP Integration** — First-class MCP tools and resources for AI assistant integration
 - **Multi-user** — GitHub/Google OAuth with per-user data isolation
 - **Docker Compose** — One-command deployment with health checks on all services
+
+### AI Intelligence
+
+- **Auto-Title Generation** — Suggest titles from note content when title is empty
+- **Summarize** — One-click AI summary of any note
+- **Writing Assist** — Continue writing, improve text, or summarize content in the editor
+- **Contextual Writing Suggestions** — RAG-powered writing ideas based on related notes
+- **Meeting Intelligence** — Extract attendees, action items, decisions, and follow-ups from meeting notes
+- **Entity Extraction** — Detect people, projects, decisions, dates, locations from notes for the knowledge graph
+- **AI Link Suggestions** — Discover related notes with one click and link them
+- **Smart Daily Briefing** — Dashboard panel summarizing yesterday's work, today's priorities, and upcoming deadlines
+- **Summary Reports** — Generate weekly or monthly reports filtered by section
+- **Priority Inference** — Batch AI analysis to suggest priority levels for todos
+- **Natural Language Commands** — Type commands like "create note about standup" in the command palette
 
 ## Architecture
 
@@ -212,15 +229,44 @@ To use Ollama instead of OpenAI:
 | PATCH | `/api/todos/{id}/toggle` | Toggle done/undone |
 | POST | `/api/todos/suggest/{note_id}` | LLM-generate suggested todos from a note |
 | POST | `/api/todos/{id}/dismiss` | Dismiss a suggested todo |
+| POST | `/api/todos/infer-priorities` | AI batch priority inference for todos |
+
+### AI & Intelligence
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/notes/suggest-title` | AI-generated title from content |
+| POST | `/api/notes/{id}/summarize` | One-click note summary |
+| POST | `/api/notes/{id}/writing-assist` | Continue, improve, or summarize |
+| POST | `/api/notes/{id}/writing-context` | RAG-powered writing suggestions |
+| POST | `/api/notes/{id}/suggest-links` | Discover related notes |
+| POST | `/api/notes/{id}/extract-meeting` | Extract meeting intelligence |
+| POST | `/api/notes/{id}/extract-entities` | Extract people, projects, etc. |
+| POST | `/api/notes/{id}/auto-tag` | AI-generated tag suggestions |
+| POST | `/api/notes/format-content` | Reformat content via LLM |
+
+### Dashboard & Reports
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/dashboard` | Dashboard stats and digest |
+| GET | `/api/dashboard/briefing` | Smart daily briefing |
+| POST | `/api/dashboard/report` | Generate weekly/monthly summary report |
+
+### Commands
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/commands/execute` | Execute a natural language command |
 
 ## TODOs
 
 Atlas Note includes a task management system that combines manual todos with AI-powered suggestions.
 
-- **Manual CRUD** — Add, edit, delete, and mark todos as done from the sidebar panel
-- **LLM Auto-Suggestions** — When new notes are processed, the worker automatically extracts actionable items (commitments, deadlines, follow-ups) and creates them as suggested TODOs
+- **Manual CRUD** — Add, edit, delete, and mark todos as done from the dedicated TODOs page
+- **Priority Levels** — Set priority (low, medium, high, urgent) with color-coded badges
+- **Due Dates & Reminders** — Set target dates and get visual warnings when deadlines approach
+- **LLM Auto-Suggestions** — When new notes are processed, the worker automatically extracts actionable items with inferred priority and due dates
+- **Priority Inference** — Batch AI analysis to suggest priorities for todos without one
 - **Filters** — View todos by status: All, Active, Done, or Suggested
-- **Source Note Linking** — Suggested TODOs are linked back to the note they were extracted from, so you can always see the original context
+- **Source Note Linking** — Suggested TODOs are linked back to the note they were extracted from
 
 ## Knowledge Graph
 
@@ -330,8 +376,10 @@ User
  ├── Section (hierarchical via parent_id)
  │    └── Note
  │         ├── NoteVersion (snapshots on update)
- │         └── NoteChunk (chunks with vector embeddings)
- └── Todo (manual or LLM-suggested, optionally linked to a Note)
+ │         ├── NoteChunk (chunks with vector embeddings)
+ │         └── NoteEntity (extracted people, projects, decisions, etc.)
+ ├── Todo (priority, due_date, optionally linked to a Note)
+ └── Setting (user-scoped key-value LLM config overrides)
 ```
 
 ## Development

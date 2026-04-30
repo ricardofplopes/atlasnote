@@ -349,7 +349,7 @@ function NoteContent() {
   }
 
   return (
-    <div className="max-w-4xl pt-2">
+    <div className="max-w-4xl">
       <div className="flex items-center gap-2 mb-6">
         <button
           onClick={() => router.back()}
