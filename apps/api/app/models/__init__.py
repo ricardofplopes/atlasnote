@@ -258,3 +258,21 @@ class Reminder(Base):
         Index("ix_reminders_user", "user_id"),
         Index("ix_reminders_user_active", "user_id", "is_dismissed"),
     )
+
+
+class NoteEntity(Base):
+    __tablename__ = "note_entities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=False)
+    entity_type = Column(String(30), nullable=False)  # person, project, decision, date, location, event
+    entity_value = Column(String(255), nullable=False)
+    context = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    note = relationship("Note", backref="entities")
+
+    __table_args__ = (
+        Index("ix_note_entities_note_id", "note_id"),
+        Index("ix_note_entities_type_value", "entity_type", "entity_value"),
+    )

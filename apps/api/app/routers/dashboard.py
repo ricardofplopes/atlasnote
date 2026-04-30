@@ -302,3 +302,292 @@ async def generate_digest(
         raise HTTPException(status_code=502, detail="Failed to generate digest")
 
     return DigestResponse(digest=digest.strip(), notes_analyzed=len(notes))
+
+
+# ── Briefing ──
+
+BRIEFING_PROMPT = """You are a productivity assistant. Based on the user's activity, generate a concise morning briefing. Structure:
+1. **Yesterday's Progress** — What was worked on
+2. **Urgent Items** — Overdue todos and deadlines today
+3. **Priorities for Today** — Top 3 suggested focus areas
+4. **Upcoming** — What's coming in the next few days
+
+Keep it brief and actionable. Use markdown formatting."""
+
+
+class BriefingResponse(BaseModel):
+    briefing: str
+    data: dict
+
+
+@router.get("/briefing")
+async def get_daily_briefing(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a smart daily briefing using LLM."""
+    now = datetime.now(timezone.utc)
+    today = date.today()
+    yesterday_start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    three_days_later = now + timedelta(days=3)
+
+    # Notes updated yesterday
+    notes_result = await db.execute(
+        select(Note.title, Note.content)
+        .where(
+            and_(
+                Note.user_id == user.id,
+                Note.is_deleted == False,
+                Note.updated_at >= yesterday_start,
+                Note.updated_at < yesterday_end,
+            )
+        )
+        .order_by(Note.updated_at.desc())
+        .limit(15)
+    )
+    yesterday_notes = notes_result.all()
+
+    # Overdue todos
+    overdue_result = await db.execute(
+        select(Todo.title, Todo.due_date)
+        .where(Todo.user_id == user.id, Todo.is_done == False, Todo.due_date < today)
+        .order_by(Todo.due_date.asc())
+        .limit(10)
+    )
+    overdue_todos = overdue_result.all()
+
+    # Todos due today or tomorrow
+    tomorrow = today + timedelta(days=1)
+    due_soon_result = await db.execute(
+        select(Todo.title, Todo.due_date)
+        .where(
+            Todo.user_id == user.id,
+            Todo.is_done == False,
+            Todo.due_date >= today,
+            Todo.due_date <= tomorrow,
+        )
+        .order_by(Todo.due_date.asc())
+    )
+    due_soon_todos = due_soon_result.all()
+
+    # High-priority pending todos
+    high_priority_result = await db.execute(
+        select(Todo.title, Todo.priority)
+        .where(
+            Todo.user_id == user.id,
+            Todo.is_done == False,
+            Todo.priority.in_(["urgent", "high"]),
+        )
+        .limit(10)
+    )
+    high_priority_todos = high_priority_result.all()
+
+    # Upcoming reminders (next 3 days)
+    reminders_result = await db.execute(
+        select(Reminder.title, Reminder.due_date)
+        .where(
+            and_(
+                Reminder.user_id == user.id,
+                Reminder.is_dismissed == False,
+                Reminder.due_date <= three_days_later,
+                Reminder.due_date >= now,
+            )
+        )
+        .order_by(Reminder.due_date.asc())
+        .limit(10)
+    )
+    upcoming_reminders = reminders_result.all()
+
+    # Build context for LLM
+    context_parts = []
+    if yesterday_notes:
+        context_parts.append("Notes updated yesterday:")
+        for n in yesterday_notes:
+            snippet = (n.content or "")[:200].replace("\n", " ")
+            context_parts.append(f"- {n.title}: {snippet}")
+
+    if overdue_todos:
+        context_parts.append("\nOverdue todos:")
+        for t in overdue_todos:
+            context_parts.append(f"- {t.title} (due: {t.due_date})")
+
+    if due_soon_todos:
+        context_parts.append("\nTodos due today/tomorrow:")
+        for t in due_soon_todos:
+            context_parts.append(f"- {t.title} (due: {t.due_date})")
+
+    if high_priority_todos:
+        context_parts.append("\nHigh-priority pending todos:")
+        for t in high_priority_todos:
+            context_parts.append(f"- {t.title} (priority: {t.priority})")
+
+    if upcoming_reminders:
+        context_parts.append("\nUpcoming reminders (next 3 days):")
+        for r in upcoming_reminders:
+            context_parts.append(f"- {r.title} (due: {r.due_date})")
+
+    if not context_parts:
+        return BriefingResponse(
+            briefing="No recent activity to report. Start your day fresh!",
+            data={"notes_yesterday": 0, "overdue_todos": 0, "due_today": 0},
+        )
+
+    context_text = "\n".join(context_parts)
+    prompt = f"{BRIEFING_PROMPT}\n\nUser activity data:\n{context_text}"
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    try:
+        briefing = await provider.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+    except Exception as e:
+        logger.error(f"Briefing generation failed for user {user.id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to generate briefing")
+
+    return BriefingResponse(
+        briefing=briefing.strip(),
+        data={
+            "notes_yesterday": len(yesterday_notes),
+            "overdue_todos": len(overdue_todos),
+            "due_today": len(due_soon_todos),
+        },
+    )
+
+
+# ── Report ──
+
+REPORT_PROMPT = """Generate a summary report for the past {period}. Include:
+- **Overview** — Key themes and areas of focus
+- **Progress by Section** — What was accomplished in each area
+- **Completed Tasks** — Notable completions
+- **Open Items** — Unresolved todos or follow-ups
+- **Insights** — Patterns or suggestions
+Use markdown. Be concise but comprehensive."""
+
+
+class ReportRequest(BaseModel):
+    period: str  # "week" or "month"
+    section_id: str | None = None
+
+
+class ReportResponse(BaseModel):
+    report: str
+    stats: dict
+
+
+@router.post("/report")
+async def generate_report(
+    body: ReportRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a weekly or monthly summary report using LLM."""
+    if body.period not in ("week", "month"):
+        raise HTTPException(status_code=400, detail="Period must be 'week' or 'month'")
+
+    now = datetime.now(timezone.utc)
+    if body.period == "week":
+        since = now - timedelta(days=7)
+    else:
+        since = now - timedelta(days=30)
+
+    # Notes created/updated in the period
+    notes_query = (
+        select(Note.title, Note.content, Note.section_id, Note.updated_at)
+        .where(
+            and_(
+                Note.user_id == user.id,
+                Note.is_deleted == False,
+                Note.updated_at >= since,
+            )
+        )
+        .order_by(Note.updated_at.desc())
+    )
+    if body.section_id:
+        notes_query = notes_query.where(Note.section_id == body.section_id)
+    notes_result = await db.execute(notes_query)
+    notes = notes_result.all()
+
+    # Todos completed in the period
+    completed_query = (
+        select(Todo.title, Todo.updated_at)
+        .where(
+            and_(
+                Todo.user_id == user.id,
+                Todo.is_done == True,
+                Todo.updated_at >= since,
+            )
+        )
+        .order_by(Todo.updated_at.desc())
+    )
+    completed_result = await db.execute(completed_query)
+    completed_todos = completed_result.all()
+
+    # Sections with note counts for the period
+    sections_query = (
+        select(Section.name, func.count(Note.id).label("note_count"))
+        .join(Note, Note.section_id == Section.id)
+        .where(
+            and_(
+                Section.user_id == user.id,
+                Note.is_deleted == False,
+                Note.updated_at >= since,
+            )
+        )
+        .group_by(Section.id, Section.name)
+        .order_by(func.count(Note.id).desc())
+    )
+    sections_result = await db.execute(sections_query)
+    section_counts = sections_result.all()
+
+    # Build context
+    context_parts = []
+    if notes:
+        context_parts.append(f"Notes ({len(notes)} total):")
+        for n in notes[:30]:
+            snippet = (n.content or "")[:150].replace("\n", " ")
+            context_parts.append(f"- {n.title}: {snippet}")
+
+    if completed_todos:
+        context_parts.append(f"\nCompleted todos ({len(completed_todos)}):")
+        for t in completed_todos[:20]:
+            context_parts.append(f"- {t.title}")
+
+    if section_counts:
+        context_parts.append("\nActive sections:")
+        for s in section_counts:
+            context_parts.append(f"- {s.name}: {s.note_count} notes")
+
+    if not context_parts:
+        return ReportResponse(
+            report="No activity found for this period.",
+            stats={"notes_count": 0, "todos_completed": 0, "sections_active": 0},
+        )
+
+    context_text = "\n".join(context_parts)
+    prompt = REPORT_PROMPT.format(period=body.period) + f"\n\nData:\n{context_text}"
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    try:
+        report = await provider.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+    except Exception as e:
+        logger.error(f"Report generation failed for user {user.id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to generate report")
+
+    return ReportResponse(
+        report=report.strip(),
+        stats={
+            "notes_count": len(notes),
+            "todos_completed": len(completed_todos),
+            "sections_active": len(section_counts),
+        },
+    )

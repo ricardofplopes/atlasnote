@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getDashboard, generateDigest, createNote, listSections } from "@/lib/api";
+import { getDashboard, generateDigest, getDailyBriefing, createNote, listSections } from "@/lib/api";
 import { toggleTodo } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
@@ -105,6 +105,12 @@ function DashboardContent() {
   const [digestOpen, setDigestOpen] = useState(false);
   const [digestLoading, setDigestLoading] = useState(false);
 
+  // Briefing state
+  const [briefing, setBriefing] = useState<string | null>(null);
+  const [briefingOpen, setBriefingOpen] = useState(true);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingStats, setBriefingStats] = useState<{ notes_yesterday: number; overdue_todos: number; due_today: number } | null>(null);
+
   const fetchDashboard = async () => {
     try {
       const [data, secs] = await Promise.all([getDashboard(), listSections()]);
@@ -154,6 +160,20 @@ function DashboardContent() {
       toast.error("Failed to generate digest");
     } finally {
       setDigestLoading(false);
+    }
+  };
+
+  const handleGenerateBriefing = async () => {
+    setBriefingLoading(true);
+    setBriefingOpen(true);
+    try {
+      const result = await getDailyBriefing();
+      setBriefing(result.briefing);
+      setBriefingStats(result.data || null);
+    } catch {
+      toast.error("Failed to generate briefing");
+    } finally {
+      setBriefingLoading(false);
     }
   };
 
@@ -274,6 +294,70 @@ function DashboardContent() {
             {capturing ? "..." : "+ Add"}
           </button>
         </div>
+      </div>
+
+      {/* AI Daily Briefing */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+      >
+        <button
+          onClick={() => setBriefingOpen(!briefingOpen)}
+          className="w-full flex items-center justify-between p-4 text-left"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🧠</span>
+            <span className="font-semibold text-sm" style={{ color: "var(--foreground)" }}>
+              Smart Daily Briefing
+            </span>
+            {briefingStats && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}>
+                {briefingStats.overdue_todos > 0 ? `${briefingStats.overdue_todos} overdue` : "All clear"}
+              </span>
+            )}
+          </div>
+          <span
+            className="text-xs transition-transform"
+            style={{ color: "var(--text-muted)", transform: briefingOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+          >
+            ▼
+          </span>
+        </button>
+        {briefingOpen && (
+          <div className="px-4 pb-4">
+            {!briefing && !briefingLoading && (
+              <button
+                onClick={handleGenerateBriefing}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                style={{ background: "var(--accent)" }}
+              >
+                Generate Briefing
+              </button>
+            )}
+            {briefingLoading && (
+              <div className="flex items-center gap-2 py-4">
+                <span className="inline-block w-4 h-4 rounded-full animate-spin" style={{ border: "2px solid var(--card-border)", borderTopColor: "var(--accent)" }} />
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>Preparing your briefing…</span>
+              </div>
+            )}
+            {briefing && !briefingLoading && (
+              <div>
+                <div className="prose prose-sm max-w-none text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>
+                    {briefing}
+                  </ReactMarkdown>
+                </div>
+                <button
+                  onClick={handleGenerateBriefing}
+                  className="mt-3 text-xs font-medium px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
+                  style={{ color: "var(--accent)", background: "var(--accent-soft)" }}
+                >
+                  ↻ Refresh
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* AI Weekly Digest */}

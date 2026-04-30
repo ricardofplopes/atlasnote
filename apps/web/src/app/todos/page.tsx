@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo } from "@/lib/api";
+import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo, inferTodoPriorities } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -164,14 +164,34 @@ function TodosContent() {
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-display font-bold">TODOs</h2>
-        {overdueTodos.length > 0 && (
-          <span
-            className="text-xs px-2.5 py-1 rounded-full font-semibold animate-pulse"
-            style={{ background: "rgba(248,113,113,0.15)", color: "#f87171" }}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                const res = await inferTodoPriorities();
+                if (res?.updated > 0) {
+                  toastSuccess(`Updated priorities for ${res.updated} todos`);
+                  const data = await listTodos(filter);
+                  setTodos(data || []);
+                } else {
+                  toastSuccess("All todos already have priorities");
+                }
+              } catch { toastError("Priority inference failed"); }
+            }}
+            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-80"
+            style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
           >
-            ⏰ {overdueTodos.length} overdue
-          </span>
-        )}
+            🎯 Infer Priorities
+          </button>
+          {overdueTodos.length > 0 && (
+            <span
+              className="text-xs px-2.5 py-1 rounded-full font-semibold animate-pulse"
+              style={{ background: "rgba(248,113,113,0.15)", color: "#f87171" }}
+            >
+              ⏰ {overdueTodos.length} overdue
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Quick add */}

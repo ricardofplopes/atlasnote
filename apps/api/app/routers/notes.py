@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, literal_column
+from sqlalchemy import select, func, case, literal_column, delete
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
-from app.models import User, Section, Note, NoteVersion, NoteChunk, NoteLink
+from app.models import User, Section, Note, NoteVersion, NoteChunk, NoteLink, NoteEntity, Todo
 from app.schemas import (
     NoteCreate, NoteUpdate, NoteMoveRequest, NoteReorderRequest,
     NoteResponse, NoteVersionResponse,
@@ -640,6 +640,281 @@ Return ONLY valid JSON."""
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Section suggestion failed: {str(e)}")
+
+
+@router.post("/suggest-title")
+async def suggest_title(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use LLM to suggest a concise title from note content."""
+    import json as json_mod
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+
+    content = (body or {}).get("content", "")
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="No content provided")
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    prompt = f"""Given this note content, suggest a concise and descriptive title (5-10 words max). Return ONLY the title text, nothing else.
+
+Content:
+{content[:3000]}"""
+
+    try:
+        response = await provider.chat([
+            {"role": "user", "content": prompt},
+        ], temperature=0.3)
+        title = response.strip().strip('"').strip("'")
+        return {"title": title}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Title suggestion failed: {str(e)}")
+
+
+@router.post("/extract-entities")
+async def extract_entities(
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract entities (people, projects, decisions, events) from a note."""
+    import json as json_mod
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+
+    note_id = (body or {}).get("note_id")
+    if not note_id:
+        raise HTTPException(status_code=400, detail="note_id is required")
+
+    try:
+        note_uuid = uuid.UUID(note_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid note_id format")
+
+    note = await _get_note(note_uuid, user.id, db)
+    if not note.content or not note.content.strip():
+        raise HTTPException(status_code=400, detail="Note has no content")
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    prompt = f"""Extract entities from the following note content. Identify:
+- People (names mentioned)
+- Projects (project or product names)
+- Decisions (key decisions made)
+- Events (meetings, deadlines, milestones)
+
+For each entity, provide the type, value, and a brief context snippet showing where it appears.
+
+Return a JSON array: [{{"type": "person|project|decision|event", "value": "entity name", "context": "brief context"}}]
+Return ONLY valid JSON array, no other text.
+
+Content:
+{note.content[:4000]}"""
+
+    try:
+        response = await provider.chat([
+            {"role": "system", "content": "You are a helpful assistant that returns only valid JSON."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.2)
+
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+        entities = json_mod.loads(cleaned)
+        if not isinstance(entities, list):
+            entities = []
+    except (json_mod.JSONDecodeError, Exception) as e:
+        if isinstance(e, json_mod.JSONDecodeError):
+            raise HTTPException(status_code=500, detail="Failed to parse LLM response as JSON")
+        raise HTTPException(status_code=500, detail=f"Entity extraction failed: {str(e)}")
+
+    # Delete old entities for this note and insert new ones
+    await db.execute(delete(NoteEntity).where(NoteEntity.note_id == note_uuid))
+    for ent in entities:
+        entity = NoteEntity(
+            note_id=note_uuid,
+            entity_type=ent.get("type", "unknown"),
+            entity_value=ent.get("value", ""),
+            context=ent.get("context", ""),
+        )
+        db.add(entity)
+    await db.flush()
+
+    return {"entities": [{"type": e.get("type", "unknown"), "value": e.get("value", ""), "context": e.get("context", "")} for e in entities]}
+
+
+@router.post("/{note_id}/writing-context")
+async def writing_context(
+    note_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """RAG-enhanced writing suggestions based on semantically similar notes."""
+    import json as json_mod
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+
+    note = await _get_note(note_id, user.id, db)
+    if not note.content or not note.content.strip():
+        raise HTTPException(status_code=400, detail="Note has no content")
+
+    # Get the note's embedding from NoteChunk
+    chunk_result = await db.execute(
+        select(NoteChunk.embedding)
+        .where(NoteChunk.note_id == note_id, NoteChunk.embedding.isnot(None))
+        .order_by(NoteChunk.chunk_index)
+        .limit(1)
+    )
+    embedding = chunk_result.scalar_one_or_none()
+
+    related_notes = []
+    context_snippets = []
+
+    if embedding is not None:
+        emb_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+        # Find top 5 semantically similar notes
+        similar_result = await db.execute(
+            select(
+                Note.id,
+                Note.title,
+                Note.content,
+                func.min(NoteChunk.embedding.cosine_distance(emb_str)).label("distance"),
+            )
+            .join(NoteChunk, NoteChunk.note_id == Note.id)
+            .where(
+                Note.user_id == user.id,
+                Note.id != note_id,
+                Note.is_deleted == False,
+                NoteChunk.embedding.isnot(None),
+            )
+            .group_by(Note.id, Note.title, Note.content)
+            .order_by(literal_column("distance").asc())
+            .limit(5)
+        )
+        similar_notes = similar_result.all()
+
+        for row in similar_notes:
+            related_notes.append({"id": str(row.id), "title": row.title})
+            snippet = (row.content or "")[:500]
+            context_snippets.append(f"From '{row.title}':\n{snippet}")
+
+    # Build prompt with context
+    context_text = "\n\n---\n\n".join(context_snippets) if context_snippets else "No related notes found."
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    prompt = f"""You are a writing assistant. Based on the current note and related context from the user's other notes, suggest 2-3 useful continuations or additions.
+
+Current note content:
+{note.content[:2000]}
+
+Related context from other notes:
+{context_text}
+
+Return a JSON array of suggestions: [{{"text": "suggestion text", "source_note": "title of related note that inspired this"}}]
+If no related context is available, base suggestions only on the current note content.
+Return ONLY valid JSON array, no other text."""
+
+    try:
+        response = await provider.chat([
+            {"role": "system", "content": "You are a helpful writing assistant that returns only valid JSON."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.3)
+
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+        suggestions = json_mod.loads(cleaned)
+        if not isinstance(suggestions, list):
+            suggestions = []
+    except (json_mod.JSONDecodeError, Exception) as e:
+        if isinstance(e, json_mod.JSONDecodeError):
+            suggestions = [{"text": "Could not parse suggestions from LLM response.", "source_note": ""}]
+        else:
+            raise HTTPException(status_code=500, detail=f"Writing context failed: {str(e)}")
+
+    return {"suggestions": suggestions, "related_notes": related_notes}
+
+
+@router.post("/{note_id}/extract-meeting")
+async def extract_meeting(
+    note_id: uuid.UUID,
+    create_todos: bool = Query(True),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract structured meeting data from a note."""
+    import json as json_mod
+    from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+
+    note = await _get_note(note_id, user.id, db)
+    if not note.content or not note.content.strip():
+        raise HTTPException(status_code=400, detail="Note has no content")
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    prompt = f"""Extract structured meeting information from the following note. Parse:
+- attendees: list of names of people who attended
+- action_items: list of objects with "task", "assignee" (person responsible), and "due_date" (if mentioned, otherwise null)
+- decisions: list of key decisions made
+- follow_ups: list of items that need follow-up
+- summary: a brief paragraph summarizing the meeting
+
+Return a JSON object with these fields. Return ONLY valid JSON, no other text.
+
+Note content:
+{note.content[:5000]}"""
+
+    try:
+        response = await provider.chat([
+            {"role": "system", "content": "You are a helpful assistant that extracts structured meeting data. Return only valid JSON."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.2)
+
+        cleaned = response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+
+        meeting_data = json_mod.loads(cleaned)
+    except json_mod.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Failed to parse meeting data from LLM response")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Meeting extraction failed: {str(e)}")
+
+    # Optionally create todos from action items
+    if create_todos and meeting_data.get("action_items"):
+        for item in meeting_data["action_items"]:
+            todo = Todo(
+                user_id=user.id,
+                note_id=note_id,
+                title=item.get("task", "Untitled action item"),
+                description=f"Assigned to: {item.get('assignee', 'unassigned')}",
+                is_suggested=True,
+                priority="medium",
+            )
+            db.add(todo)
+        await db.flush()
+
+    return {
+        "attendees": meeting_data.get("attendees", []),
+        "action_items": meeting_data.get("action_items", []),
+        "decisions": meeting_data.get("decisions", []),
+        "follow_ups": meeting_data.get("follow_ups", []),
+        "summary": meeting_data.get("summary", ""),
+    }
 
 
 @router.post("/{note_id}/format-markdown")

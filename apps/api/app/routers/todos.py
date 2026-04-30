@@ -1,11 +1,11 @@
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, and_
 
 from app.core.database import get_db
 from app.models import User, Note, Todo
@@ -122,6 +122,138 @@ async def create_todo(
     db.add(todo)
     await db.flush()
     return todo
+
+
+INFER_PRIORITIES_PROMPT = """Given these todo items and the user's recent notes context, suggest a priority level (urgent/high/medium/low) and optionally a due date for each. Consider urgency keywords, time references, and importance signals.
+
+Today's date: {today}
+
+Todo items to analyze:
+{todos_text}
+
+Recent notes context (for understanding user's current focus):
+{notes_context}
+
+Return a JSON array where each item has:
+- "id": the todo ID (keep exactly as provided)
+- "priority": one of "urgent", "high", "medium", "low"
+- "due_date": ISO date string (YYYY-MM-DD) if you can reasonably infer a deadline, otherwise null
+- "reason": brief explanation of why this priority was assigned (max 80 chars)
+
+Return ONLY valid JSON, no extra text."""
+
+
+@router.post("/infer-priorities")
+async def infer_priorities(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Batch-analyze pending todos without priority and suggest priority + due dates."""
+    # Get pending todos with no priority and no due_date
+    result = await db.execute(
+        select(Todo)
+        .where(
+            and_(
+                Todo.user_id == user.id,
+                Todo.is_done == False,
+                Todo.priority == "none",
+                Todo.due_date == None,
+            )
+        )
+        .order_by(Todo.created_at.desc())
+        .limit(20)
+    )
+    todos = result.scalars().all()
+
+    if not todos:
+        return {"updated": 0, "suggestions": []}
+
+    # Get recent note titles for context
+    notes_result = await db.execute(
+        select(Note.title)
+        .where(Note.user_id == user.id, Note.is_deleted == False)
+        .order_by(Note.updated_at.desc())
+        .limit(15)
+    )
+    recent_notes = notes_result.scalars().all()
+
+    # Build prompt context
+    todos_text = "\n".join(
+        f"- ID: {todo.id} | Title: {todo.title}"
+        + (f" | Description: {todo.description}" if todo.description else "")
+        for todo in todos
+    )
+    notes_context = "\n".join(f"- {title}" for title in recent_notes) if recent_notes else "No recent notes."
+
+    prompt = INFER_PRIORITIES_PROMPT.format(
+        today=date.today().isoformat(),
+        todos_text=todos_text,
+        notes_context=notes_context,
+    )
+
+    cfg = await get_user_llm_config(user.id, db)
+    provider = get_chat_provider_from_config(cfg)
+
+    try:
+        response = await provider.chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+        response = response.strip()
+        if response.startswith("```"):
+            response = response.split("\n", 1)[1].rsplit("```", 1)[0]
+        suggestions = json.loads(response)
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning(f"Priority inference failed for user {user.id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to infer priorities")
+
+    if not isinstance(suggestions, list):
+        raise HTTPException(status_code=502, detail="Invalid LLM response format")
+
+    # Build lookup for quick access
+    todo_map = {str(todo.id): todo for todo in todos}
+    updated_count = 0
+    result_suggestions = []
+
+    valid_priorities = {"urgent", "high", "medium", "low"}
+
+    for suggestion in suggestions:
+        todo_id = str(suggestion.get("id", ""))
+        if todo_id not in todo_map:
+            continue
+
+        todo = todo_map[todo_id]
+        priority = str(suggestion.get("priority", "")).lower().strip()
+        if priority not in valid_priorities:
+            continue
+
+        # Parse due_date
+        raw_due = suggestion.get("due_date")
+        due_date_val = None
+        if raw_due:
+            try:
+                due_date_val = date.fromisoformat(str(raw_due).strip())
+            except (ValueError, TypeError):
+                pass
+
+        # Apply updates
+        todo.priority = priority
+        if due_date_val:
+            todo.due_date = due_date_val
+        updated_count += 1
+
+        result_suggestions.append({
+            "id": todo_id,
+            "title": todo.title,
+            "priority": priority,
+            "due_date": str(due_date_val) if due_date_val else None,
+            "reason": str(suggestion.get("reason", ""))[:80],
+        })
+
+    await db.flush()
+    logger.info(f"Inferred priorities for {updated_count} todos for user {user.id}")
+
+    return {"updated": updated_count, "suggestions": result_suggestions}
 
 
 @router.put("/{todo_id}", response_model=TodoResponse)

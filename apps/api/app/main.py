@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import text
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router, todos, mcp_connections, backup, workflows, reminders, templates, dashboard, note_links
+from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router, todos, mcp_connections, backup, workflows, reminders, templates, dashboard, note_links, commands
 
 settings = get_settings()
 
@@ -24,6 +24,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         "/api/notes/writing-assist": (10, 60),
         "/api/notes/graph-data": (10, 60),
         "/api/todos/suggest": (10, 60),
+        "/api/commands": (15, 60),
     }
 
     def __init__(self, app):
@@ -94,6 +95,7 @@ app.include_router(reminders.router, prefix="/api/reminders", tags=["reminders"]
 app.include_router(templates.router, prefix="/api/templates", tags=["templates"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(note_links.router, prefix="/api/note-links", tags=["note-links"])
+app.include_router(commands.router, prefix="/api/commands", tags=["commands"])
 
 
 @app.get("/api/health")

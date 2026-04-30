@@ -10,7 +10,7 @@ import {
   ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { listSections, listRecentNotes, listTodos, listWorkflows, semanticSearch } from "@/lib/api";
+import { listSections, listRecentNotes, listTodos, listWorkflows, semanticSearch, executeNlCommand } from "@/lib/api";
 
 interface CommandItem {
   id: string;
@@ -74,6 +74,51 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
   const listRef = useRef<HTMLDivElement>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [firstSectionSlug, setFirstSectionSlug] = useState<string | null>(null);
+  const [nlProcessing, setNlProcessing] = useState(false);
+  const [nlResult, setNlResult] = useState<string | null>(null);
+
+  const isNlCommand = (text: string) => {
+    if (text.startsWith(">")) return true;
+    const nlPatterns = /^(create|make|add|show|find|move|go to|open|search for|list|delete|remove)/i;
+    return nlPatterns.test(text.trim());
+  };
+
+  const handleNlCommand = async (command: string) => {
+    const cmd = command.startsWith(">") ? command.slice(1).trim() : command.trim();
+    setNlProcessing(true);
+    setNlResult(null);
+    try {
+      const result = await executeNlCommand(cmd);
+      if (result.result === "navigate") {
+        const target = result.target || "";
+        if (target.startsWith("section:")) router.push(`/sections/${target.split(":")[1]}`);
+        else if (target.startsWith("note:")) router.push(`/notes/${result.note_id || ""}`);
+        else router.push(`/${target === "dashboard" ? "" : target}`);
+        onClose();
+      } else if (result.result === "created") {
+        if (result.note_id) { router.push(`/notes/${result.note_id}`); onClose(); }
+        else if (result.todo_id) { router.push("/todos"); onClose(); }
+        else if (result.section_slug) { router.push(`/sections/${result.section_slug}`); onClose(); }
+        else { setNlResult("✅ Created successfully"); }
+      } else if (result.result === "moved") {
+        setNlResult(`✅ Moved "${result.note_title}" to ${result.new_section}`);
+        setTimeout(onClose, 1500);
+      } else if (result.result === "search") {
+        const notes = result.notes || [];
+        if (notes.length === 1) { router.push(`/notes/${notes[0].id}`); onClose(); }
+        else if (notes.length > 0) {
+          setNlResult(`Found ${notes.length} notes. Opening search...`);
+          setTimeout(() => { router.push(`/search?q=${encodeURIComponent(cmd)}`); onClose(); }, 800);
+        } else { setNlResult("No notes found matching that query."); }
+      } else {
+        setNlResult(result.message || "Command executed.");
+      }
+    } catch {
+      setNlResult("❌ Failed to execute command");
+    } finally {
+      setNlProcessing(false);
+    }
+  };
 
   // Navigation items (always available)
   const navigationItems: CommandItem[] = [
@@ -83,6 +128,7 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
     { id: "nav-chat", label: "Chat", description: "AI-powered Q&A", icon: "💬", action: () => router.push("/chat"), category: "navigate" },
     { id: "nav-wiki", label: "Wiki", description: "Generate wiki from notes", icon: "📖", action: () => router.push("/wiki"), category: "navigate" },
     { id: "nav-graph", label: "Knowledge Graph", description: "Visualize connections", icon: "🕸️", action: () => router.push("/graph"), category: "navigate" },
+    { id: "nav-reports", label: "Reports", description: "AI summary reports", icon: "📊", action: () => router.push("/reports"), category: "navigate" },
     { id: "nav-import", label: "Import", description: "Import files", icon: "📥", action: () => router.push("/import"), category: "navigate" },
     { id: "nav-deleted", label: "Deleted Notes", description: "Restore deleted notes", icon: "🗑️", action: () => router.push("/deleted"), category: "navigate" },
     { id: "nav-settings", label: "Settings", description: "LLM configuration", icon: "⚙️", action: () => router.push("/settings"), category: "navigate" },
@@ -256,15 +302,19 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setSelectedIndex((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === "Enter" && allDisplayItems[selectedIndex]) {
+      } else if (e.key === "Enter") {
         e.preventDefault();
-        allDisplayItems[selectedIndex].action();
-        onClose();
+        if (isNlCommand(query) && !nlProcessing) {
+          handleNlCommand(query);
+        } else if (allDisplayItems[selectedIndex]) {
+          allDisplayItems[selectedIndex].action();
+          onClose();
+        }
       } else if (e.key === "Escape") {
         onClose();
       }
     },
-    [allDisplayItems, selectedIndex, onClose]
+    [allDisplayItems, selectedIndex, onClose, query, nlProcessing]
   );
 
   // Scroll selected item into view
@@ -319,19 +369,28 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
       >
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <svg className="w-5 h-5 shrink-0" style={{ color: "var(--text-muted)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-          </svg>
+          {isNlCommand(query) ? (
+            <span className="text-sm shrink-0" style={{ color: "var(--accent)" }}>⚡</span>
+          ) : (
+            <svg className="w-5 h-5 shrink-0" style={{ color: "var(--text-muted)" }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+          )}
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search notes, sections, pages…"
+            placeholder='Search or type a command (e.g. "create note about..." or "> move...")'
             className="flex-1 bg-transparent text-sm outline-none"
             style={{ color: "var(--foreground)" }}
             autoFocus
           />
+          {isNlCommand(query) && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}>
+              AI Command
+            </span>
+          )}
           <kbd
             className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono"
             style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
@@ -339,6 +398,20 @@ function CommandPaletteModal({ onClose }: { onClose: () => void }) {
             ESC
           </kbd>
         </div>
+
+        {/* NL Command processing/result */}
+        {(nlProcessing || nlResult) && (
+          <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            {nlProcessing ? (
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-3.5 h-3.5 rounded-full animate-spin" style={{ border: "2px solid var(--card-border)", borderTopColor: "var(--accent)" }} />
+                <span className="text-sm" style={{ color: "var(--text-muted)" }}>Processing command...</span>
+              </div>
+            ) : nlResult && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{nlResult}</p>
+            )}
+          </div>
+        )}
 
         {/* Results */}
         <div ref={listRef} className="overflow-y-auto" style={{ maxHeight: "calc(60vh - 52px)" }}>

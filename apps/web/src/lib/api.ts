@@ -439,6 +439,10 @@ export async function suggestTodos(noteId: string) {
   return apiFetch(`/api/todos/suggest/${noteId}`, { method: "POST" }, LLM_TIMEOUT);
 }
 
+export async function inferTodoPriorities() {
+  return apiFetch("/api/todos/infer-priorities", { method: "POST" }, LLM_TIMEOUT);
+}
+
 export async function dismissTodo(id: string) {
   return apiFetch(`/api/todos/${id}/dismiss`, { method: "POST" });
 }
@@ -580,6 +584,17 @@ export async function generateDigest() {
   return apiFetch("/api/dashboard/digest", { method: "POST" }, LLM_TIMEOUT);
 }
 
+export async function getDailyBriefing() {
+  return apiFetch("/api/dashboard/briefing", {}, LLM_TIMEOUT);
+}
+
+export async function generateReport(period: "week" | "month", sectionId?: string) {
+  return apiFetch("/api/dashboard/report", {
+    method: "POST",
+    body: JSON.stringify({ period, section_id: sectionId }),
+  }, LLM_TIMEOUT);
+}
+
 // AI Workflows
 export async function listWorkflows() {
   return apiFetch("/api/workflows/");
@@ -628,4 +643,35 @@ export async function dismissReminder(id: string) {
 
 export async function convertReminderToTodo(id: string) {
   return apiFetch(`/api/reminders/${id}/convert-todo`, { method: "POST" });
+}
+
+// Commands
+export async function executeNlCommand(command: string) {
+  return apiFetch("/api/commands/execute", {
+    method: "POST",
+    body: JSON.stringify({ command }),
+  }, LLM_TIMEOUT);
+}
+
+// AI Note Tools
+export async function suggestTitle(content: string) {
+  return apiFetch("/api/notes/suggest-title", {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  }, LLM_TIMEOUT);
+}
+
+export async function getWritingContext(noteId: string) {
+  return apiFetch(`/api/notes/${noteId}/writing-context`, { method: "POST" }, LLM_TIMEOUT);
+}
+
+export async function extractMeeting(noteId: string, createTodos = true) {
+  return apiFetch(`/api/notes/${noteId}/extract-meeting?create_todos=${createTodos}`, { method: "POST" }, LLM_TIMEOUT);
+}
+
+export async function extractEntities(noteId: string) {
+  return apiFetch("/api/notes/extract-entities", {
+    method: "POST",
+    body: JSON.stringify({ note_id: noteId }),
+  }, LLM_TIMEOUT);
 }

@@ -14,6 +14,10 @@ import {
   getRelatedNotes,
   getBacklinks,
   suggestLinks,
+  suggestTitle,
+  getWritingContext,
+  extractMeeting,
+  extractEntities,
   formatNoteMarkdown,
   autoTagNote,
   exportNote,
@@ -204,6 +208,10 @@ function NoteContent() {
   const [backlinks, setBacklinks] = useState<{note_id: string; note_title: string; link_text: string}[]>([]);
   const [linkSuggestions, setLinkSuggestions] = useState<{note_id: string; note_title: string; reason: string}[] | null>(null);
   const [linkSugLoading, setLinkSugLoading] = useState(false);
+  const [writingCtx, setWritingCtx] = useState<{suggestions: {text: string; source_note: string}[]; related_notes: {id: string; title: string}[]} | null>(null);
+  const [writingCtxLoading, setWritingCtxLoading] = useState(false);
+  const [meetingData, setMeetingData] = useState<{attendees?: string[]; action_items?: {task: string; assignee?: string; due_date?: string}[]; decisions?: string[]; follow_ups?: string[]; summary?: string} | null>(null);
+  const [meetingLoading, setMeetingLoading] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -497,17 +505,33 @@ function NoteContent() {
 
       {editing ? (
         <div className="space-y-4">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-2xl font-display font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2"
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--card-border)',
-              color: 'var(--foreground)',
-              ['--tw-ring-color' as string]: 'var(--accent)',
-            }}
-          />
+          <div className="relative">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full text-2xl font-display font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-2"
+              style={{
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid var(--card-border)',
+                color: 'var(--foreground)',
+                ['--tw-ring-color' as string]: 'var(--accent)',
+              }}
+            />
+            {!title.trim() && content.trim().length > 20 && (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await suggestTitle(content);
+                    if (res?.title) setTitle(res.title);
+                  } catch { toastError("Title suggestion failed"); }
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] px-2 py-1 rounded-lg"
+                style={{ background: "rgba(122,92,255,0.15)", color: "#a78bfa" }}
+              >
+                ✨ Suggest title
+              </button>
+            )}
+          </div>
           <MarkdownEditor
             value={content}
             onChange={setContent}
@@ -822,6 +846,37 @@ function NoteContent() {
               >
                 {linkSugLoading ? "..." : "🔗 Suggest Links"}
               </button>
+              <button
+                onClick={async () => {
+                  setWritingCtxLoading(true);
+                  try {
+                    const res = await getWritingContext(noteId);
+                    setWritingCtx(res);
+                  } catch { toastError("Writing suggestions failed"); }
+                  finally { setWritingCtxLoading(false); }
+                }}
+                disabled={writingCtxLoading}
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+              >
+                {writingCtxLoading ? "..." : "✨ Suggest Writing"}
+              </button>
+              <button
+                onClick={async () => {
+                  setMeetingLoading(true);
+                  try {
+                    const res = await extractMeeting(noteId);
+                    setMeetingData(res);
+                    toastSuccess(`Extracted ${res.action_items?.length || 0} action items`);
+                  } catch { toastError("Meeting extraction failed"); }
+                  finally { setMeetingLoading(false); }
+                }}
+                disabled={meetingLoading}
+                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+              >
+                {meetingLoading ? "..." : "📋 Extract Meeting"}
+              </button>
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                 {wordCount} words · {readingTime} min read
               </span>
@@ -870,6 +925,88 @@ function NoteContent() {
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {writingCtx && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: "#a78bfa" }}>✨ Writing Suggestions</span>
+                <button onClick={() => setWritingCtx(null)} className="text-xs" style={{ color: "var(--text-muted)" }}>✕</button>
+              </div>
+              <div className="space-y-2">
+                {writingCtx.suggestions?.map((s, i) => (
+                  <div key={i} className="p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{s.text}</p>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>From: {s.source_note}</span>
+                      <button
+                        onClick={() => { setContent((prev) => prev + `\n\n${s.text}`); toastSuccess("Added to note"); }}
+                        className="text-[10px] px-2 py-0.5 rounded font-medium"
+                        style={{ background: "var(--accent-soft)", color: "#a78bfa" }}
+                      >
+                        + Insert
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {meetingData && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: "rgba(122,92,255,0.05)", border: "1px solid rgba(122,92,255,0.2)" }}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium" style={{ color: "#a78bfa" }}>📋 Meeting Intelligence</span>
+                <button onClick={() => setMeetingData(null)} className="text-xs" style={{ color: "var(--text-muted)" }}>✕</button>
+              </div>
+              {meetingData.summary && (
+                <p className="text-sm mb-2" style={{ color: "var(--text-secondary)" }}>{meetingData.summary}</p>
+              )}
+              {meetingData.attendees && meetingData.attendees.length > 0 && (
+                <div className="mb-2">
+                  <span className="text-[10px] uppercase font-bold" style={{ color: "var(--text-muted)" }}>Attendees</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {meetingData.attendees.map((a, i) => (
+                      <span key={i} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>{a}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {meetingData.action_items && meetingData.action_items.length > 0 && (
+                <div className="mb-2">
+                  <span className="text-[10px] uppercase font-bold" style={{ color: "var(--text-muted)" }}>Action Items (→ Todos)</span>
+                  <div className="space-y-1 mt-1">
+                    {meetingData.action_items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        <span style={{ color: "#4ade80" }}>✓</span>
+                        <span>{item.task}</span>
+                        {item.assignee && <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}>{item.assignee}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {meetingData.decisions && meetingData.decisions.length > 0 && (
+                <div className="mb-2">
+                  <span className="text-[10px] uppercase font-bold" style={{ color: "var(--text-muted)" }}>Decisions</span>
+                  <ul className="mt-1 space-y-0.5">
+                    {meetingData.decisions.map((d, i) => (
+                      <li key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>• {d}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {meetingData.follow_ups && meetingData.follow_ups.length > 0 && (
+                <div>
+                  <span className="text-[10px] uppercase font-bold" style={{ color: "var(--text-muted)" }}>Follow-ups</span>
+                  <ul className="mt-1 space-y-0.5">
+                    {meetingData.follow_ups.map((f, i) => (
+                      <li key={i} className="text-xs" style={{ color: "var(--text-secondary)" }}>→ {f}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

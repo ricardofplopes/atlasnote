@@ -117,6 +117,15 @@ function IconWorkflows({ className }: { className?: string }) {
   );
 }
 
+function IconReports({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="none" strokeWidth={1.5} stroke="currentColor">
+      <rect x="3" y="3" width="14" height="14" rx="2" />
+      <path d="M7 13V9M10 13V7M13 13V10" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const navItems = [
   { href: "/", label: "Dashboard", Icon: IconRecentNotes },
   { href: "/todos", label: "TODOs", Icon: IconTodos },
@@ -125,6 +134,7 @@ const navItems = [
   { href: "/wiki", label: "Wiki", Icon: IconWiki },
   { href: "/workflows", label: "Workflows", Icon: IconWorkflows },
   { href: "/graph", label: "Graph", Icon: IconGraph },
+  { href: "/reports", label: "Reports", Icon: IconReports },
   { href: "/import", label: "Import", Icon: IconImport },
   { href: "/deleted", label: "Deleted", Icon: IconDeleted },
   { href: "/settings", label: "Settings", Icon: IconSettings },
