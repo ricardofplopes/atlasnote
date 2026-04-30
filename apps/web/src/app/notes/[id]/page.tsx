@@ -349,7 +349,7 @@ function NoteContent() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-4xl pt-2">
       <div className="flex items-center gap-2 mb-6">
         <button
           onClick={() => router.back()}
@@ -804,12 +804,12 @@ function NoteContent() {
               </div>
             </div>
           )}
-          <div className="flex items-center justify-between mt-4">
-            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-              Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
-              {new Date(note.updated_at).toLocaleString()}
-            </p>
-            <div className="flex items-center gap-3">
+          {/* AI Tools */}
+          <div className="mt-6 p-4 rounded-xl" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
+            <span className="text-[10px] uppercase font-bold tracking-wider block mb-3" style={{ color: "var(--text-muted)" }}>
+              AI Tools
+            </span>
+            <div className="flex flex-wrap gap-2">
               <button
                 onClick={async () => {
                   setSummaryLoading(true);
@@ -823,10 +823,10 @@ function NoteContent() {
                   }
                 }}
                 disabled={summaryLoading}
-                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
-                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+                className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{ background: "rgba(122,92,255,0.08)", color: "#a78bfa", border: "1px solid rgba(122,92,255,0.15)" }}
               >
-                {summaryLoading ? "..." : "📋 Summarize"}
+                📋 {summaryLoading ? "Summarizing…" : "Summarize"}
               </button>
               <button
                 onClick={async () => {
@@ -841,10 +841,10 @@ function NoteContent() {
                   }
                 }}
                 disabled={linkSugLoading}
-                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
-                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+                className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{ background: "rgba(59,130,246,0.08)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.15)" }}
               >
-                {linkSugLoading ? "..." : "🔗 Suggest Links"}
+                🔗 {linkSugLoading ? "Searching…" : "Suggest Links"}
               </button>
               <button
                 onClick={async () => {
@@ -856,10 +856,10 @@ function NoteContent() {
                   finally { setWritingCtxLoading(false); }
                 }}
                 disabled={writingCtxLoading}
-                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
-                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+                className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{ background: "rgba(16,185,129,0.08)", color: "#34d399", border: "1px solid rgba(16,185,129,0.15)" }}
               >
-                {writingCtxLoading ? "..." : "✨ Suggest Writing"}
+                ✨ {writingCtxLoading ? "Thinking…" : "Writing Ideas"}
               </button>
               <button
                 onClick={async () => {
@@ -872,15 +872,23 @@ function NoteContent() {
                   finally { setMeetingLoading(false); }
                 }}
                 disabled={meetingLoading}
-                className="text-xs px-2.5 py-1 rounded-lg transition-colors"
-                style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+                className="flex items-center gap-1.5 text-xs px-3.5 py-2 rounded-lg font-medium transition-all hover:scale-[1.02] active:scale-[0.98]"
+                style={{ background: "rgba(245,158,11,0.08)", color: "#fbbf24", border: "1px solid rgba(245,158,11,0.15)" }}
               >
-                {meetingLoading ? "..." : "📋 Extract Meeting"}
+                📋 {meetingLoading ? "Extracting…" : "Meeting Intel"}
               </button>
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {wordCount} words · {readingTime} min read
-              </span>
             </div>
+          </div>
+
+          {/* Metadata footer */}
+          <div className="flex items-center justify-between mt-3 px-1">
+            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+              Created: {new Date(note.created_at).toLocaleString()} · Updated:{" "}
+              {new Date(note.updated_at).toLocaleString()}
+            </p>
+            <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              {wordCount} words · {readingTime} min read
+            </span>
           </div>
 
           {summary && (
