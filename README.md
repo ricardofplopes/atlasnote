@@ -103,8 +103,8 @@
    cp .env.example .env
    ```
    Edit `.env` and set at minimum:
-   - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` — for authentication
-   - `JWT_SECRET` — a strong random string
+   - `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` (or `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) — for authentication
+   - `JWT_SECRET` — **required**, at least 32 random characters. The API refuses to start with a missing or default value. Generate one with `python -c "import secrets; print(secrets.token_hex(32))"`
    - `OPENAI_API_KEY` — for embeddings and chat (or configure Ollama)
 
 3. **Start all services:**
@@ -131,25 +131,39 @@ On first use, you can create sections like:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://atlasnote:atlasnote@postgres:5432/atlasnote` |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID | *(required)* |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | *(required)* |
-| `JWT_SECRET` | Secret for JWT token signing | `change-me-in-production` |
+| `GITHUB_CLIENT_ID` | GitHub OAuth client ID | *(required unless using Google)* |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth client secret | *(required unless using Google)* |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID | *(optional)* |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | *(optional)* |
+| `JWT_SECRET` | Secret for JWT token signing (≥ 32 chars; API won't start otherwise) | *(required)* |
 | `JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `JWT_EXPIRATION_HOURS` | Token expiry in hours | `24` |
 | `LLM_PROVIDER` | LLM provider: `openai` or `ollama` | `openai` |
 | `CHAT_MODEL` | Model for chat/Q&A | `gpt-4o-mini` |
+| `EMBEDDING_PROVIDER` | Embedding provider (defaults to `LLM_PROVIDER`) | *(empty)* |
 | `EMBEDDING_MODEL` | Model for embeddings | `text-embedding-3-small` |
 | `EMBEDDING_DIMENSIONS` | Vector dimensions | `1536` |
+| `EMBEDDING_OPENAI_API_KEY` | Separate key for embeddings (defaults to `OPENAI_API_KEY`) | *(optional)* |
+| `EMBEDDING_OPENAI_BASE_URL` | Separate base URL for embeddings (defaults to `OPENAI_BASE_URL`) | *(optional)* |
 | `OPENAI_API_KEY` | OpenAI API key | *(required if provider=openai)* |
 | `OPENAI_BASE_URL` | OpenAI base URL | `https://api.openai.com/v1` |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint | *(optional)* |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | *(optional)* |
 | `OLLAMA_BASE_URL` | Ollama base URL | `http://ollama:11434` |
 | `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000` |
-| `MCP_API_KEY` | API key for MCP clients | *(optional)* |
+| `MCP_API_KEY` | Static API key used by the MCP server to call the API | *(optional)* |
+| `MCP_USER_EMAIL` | Email of the Atlas Note user that `MCP_API_KEY` requests act as | *(required for MCP)* |
+| `MCP_HTTP_TIMEOUT` | MCP server → API request timeout in seconds | `180` |
+| `BACKUP_INTERVAL_HOURS` | Worker auto-backup interval | `24` |
+| `BACKUP_RETAIN_COUNT` | Auto-backups kept per user | `7` |
+| `MAX_BACKUP_UPLOAD_MB` | Max size of a backup archive accepted by restore | `200` |
 | `NEXT_PUBLIC_API_URL` | API URL for frontend | `http://localhost:8000` |
+| `NEXT_PUBLIC_GITHUB_CLIENT_ID` | GitHub client ID exposed to the login page | *(same as `GITHUB_CLIENT_ID`)* |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | Google client ID exposed to the login page | *(optional)* |
 | `NEXTAUTH_URL` | Frontend URL | `http://localhost:3000` |
 | `NEXTAUTH_SECRET` | NextAuth secret | *(set a random string)* |
+
+> **Ports:** Docker Compose publishes the web UI (`3000`) and API (`8000`). Postgres (`5432`) and the MCP server (`9000`) are bound to `127.0.0.1` only. All containers restart automatically (`restart: unless-stopped`) and run as non-root users.
 
 ### Using Ollama (Local Models)
 
@@ -282,9 +296,33 @@ The interactive knowledge graph (`/graph`) visualizes notes and their semantic c
 
 Atlas Note ships with a full MCP server for integration with AI assistants like GitHub Copilot.
 
+### MCP Authentication
+
+The MCP server calls the Atlas Note API using a static API key. Set both of these in `.env` (read by the API and the MCP server):
+
+```
+MCP_API_KEY=<long random string>
+MCP_USER_EMAIL=<email of your Atlas Note account>
+```
+
+Requests that carry `MCP_API_KEY` act as the user whose email is `MCP_USER_EMAIL`. If `MCP_USER_EMAIL` is unset or doesn't match a user, MCP tools return 401.
+
 ### MCP Server Configuration
 
-Add to your MCP client configuration (e.g., `mcp.json`):
+With Docker Compose, the MCP server runs on SSE at `http://localhost:9000/sse` (bound to localhost only):
+
+```json
+{
+  "mcpServers": {
+    "atlasnote": {
+      "type": "sse",
+      "url": "http://localhost:9000/sse"
+    }
+  }
+}
+```
+
+To run it locally over stdio instead:
 
 ```json
 {
@@ -439,6 +477,13 @@ docker compose start api worker
 You can also export notes through the UI:
 - **Single note**: Click "Export" on any note page → downloads as `.md` file
 - **Section export**: Click "Export" on a section page → downloads all notes as `.zip`
+
+### Automated Backups
+
+The worker writes a `.zip` backup per user to the `backups` volume every `BACKUP_INTERVAL_HOURS`, keeping the last `BACKUP_RETAIN_COUNT`. Files are named `{user_id}_{timestamp}.zip`, and each user can only list and download their own backups in Settings. Before replacing any data, restoring from an archive checks its structure, size, and internal references.
+
+> **Upgrading from a version with root containers:** the worker now runs as a non-root user (uid 1000). If auto-backups fail with a permission error on an existing `backups` volume, run this once:
+> `docker compose run --rm -u root worker chown -R 1000:1000 /backups`
 
 ## Keyboard Shortcuts
 
