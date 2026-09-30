@@ -19,8 +19,8 @@
 - **Semantic Search** — Chunk and embed note content, search by meaning via pgvector
 - **Grounded Chat/Q&A** — Ask questions about your notes, get answers with citations
 - **Wiki Synthesis** — Auto-generate wiki pages from section notes
-- **TODOs** — Manual task management with priority levels, due dates, and reminders
-- **AI-Powered Todos** — LLM auto-suggests todos from notes with inferred priority and due dates
+- **TODOs** — Manual task management with priority levels, due dates, and reminders (todos due within 7 days show in the sidebar bell and on the dashboard)
+- **AI-Powered Todos** — LLM auto-suggests todos from recently edited notes, skipping duplicates and anything you dismissed
 - **Knowledge Graph** — Interactive canvas visualization with stats panel, section filters, search, entity nodes
 - **Bulk Import** — Upload .txt files, LLM auto-categorizes into sections with console logging
 - **LLM Settings** — Per-user provider configuration, test connection, activity logs
@@ -154,6 +154,7 @@ On first use, you can create sections like:
 | `MCP_API_KEY` | Static API key used by the MCP server to call the API | *(optional)* |
 | `MCP_USER_EMAIL` | Email of the Atlas Note user that `MCP_API_KEY` requests act as | *(required for MCP)* |
 | `MCP_HTTP_TIMEOUT` | MCP server → API request timeout in seconds | `180` |
+| `TODO_SUGGEST_RECENCY_DAYS` | Worker only auto-suggests todos for notes edited (and dated) within this many days | `14` |
 | `BACKUP_INTERVAL_HOURS` | Worker auto-backup interval | `24` |
 | `BACKUP_RETAIN_COUNT` | Auto-backups kept per user | `7` |
 | `MAX_BACKUP_UPLOAD_MB` | Max size of a backup archive accepted by restore | `200` |
@@ -241,8 +242,12 @@ To use Ollama instead of OpenAI:
 | PUT | `/api/todos/{id}` | Update a todo |
 | DELETE | `/api/todos/{id}` | Delete a todo |
 | PATCH | `/api/todos/{id}/toggle` | Toggle done/undone |
-| POST | `/api/todos/suggest/{note_id}` | LLM-generate suggested todos from a note |
-| POST | `/api/todos/{id}/dismiss` | Dismiss a suggested todo |
+| POST | `/api/todos/suggest/{note_id}` | LLM-generate suggested todos from a note (skips already tracked or dismissed items) |
+| POST | `/api/todos/{id}/accept` | Keep a suggested todo as a regular todo |
+| POST | `/api/todos/{id}/dismiss` | Dismiss a suggested todo (it won't be suggested again) |
+| POST | `/api/todos/suggestions/dedupe?dry_run=` | Remove open suggested todos that duplicate another open todo |
+| GET | `/api/reminders/` | Open todos that are overdue or due within 7 days (`?days=` to change) |
+| GET | `/api/reminders/count` | Count of open todos overdue or due within 7 days |
 | POST | `/api/todos/infer-priorities` | AI batch priority inference for todos |
 
 ### AI & Intelligence
@@ -276,8 +281,9 @@ Atlas Note includes a task management system that combines manual todos with AI-
 
 - **Manual CRUD** — Add, edit, delete, and mark todos as done from the dedicated TODOs page
 - **Priority Levels** — Set priority (low, medium, high, urgent) with color-coded badges
-- **Due Dates & Reminders** — Set target dates and get visual warnings when deadlines approach
-- **LLM Auto-Suggestions** — When new notes are processed, the worker automatically extracts actionable items with inferred priority and due dates
+- **Due Dates & Reminders** — Set target dates and get visual warnings when deadlines approach; todos overdue or due within 7 days appear in the sidebar bell and the dashboard's *Due soon* card
+- **LLM Auto-Suggestions** — When a note edited in the last `TODO_SUGGEST_RECENCY_DAYS` days changes, the worker suggests a few concrete actions (in the note's language, with due dates resolved against the note's date). Reference docs, how-tos, prompt templates and bare ticket lists are skipped, and suggestions that duplicate an existing todo or one you dismissed are dropped
+- **Keep / Dismiss / Remove duplicates** — Keep ✓ turns a suggestion into a regular todo, dismiss ✕ removes it for good, and *Remove duplicates* (Suggested filter) cleans up near-duplicate suggestions
 - **Priority Inference** — Batch AI analysis to suggest priorities for todos without one
 - **Filters** — View todos by status: All, Active, Done, or Suggested
 - **Source Note Linking** — Suggested TODOs are linked back to the note they were extracted from

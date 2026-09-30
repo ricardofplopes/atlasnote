@@ -55,7 +55,7 @@ PostgreSQL with pgvector. Async SQLAlchemy sessions are injected via `Depends(ge
 
 ### Migrations
 
-Alembic migrations live in `apps/api/alembic/versions/`. They run automatically on API startup (`alembic upgrade head`). New migrations follow the pattern `NNN_description.py` with sequential integer revision IDs (`001` … `012`); the next one is `013`.
+Alembic migrations live in `apps/api/alembic/versions/`. They run automatically on API startup (`alembic upgrade head`). New migrations follow the pattern `NNN_description.py` with sequential integer revision IDs (`001` … `013`); the next one is `014`.
 
 ## Data model
 
@@ -63,7 +63,7 @@ Thirteen models in `apps/api/app/models/__init__.py`:
 
 - **User** — id, email, name, avatar_url, google_id, created_at, last_login
 - **Section** — id, user_id, parent_id (self-ref FK for sub-sections), name, slug, description, position, is_archived
-- **Note** — id, user_id, section_id, title, content, tags (JSON), is_pinned, is_deleted, deleted_at, source_url (http/https only, validated in schemas), position
+- **Note** — id, user_id, section_id, title, content, tags (JSON), is_pinned, is_deleted, deleted_at, source_url (http/https only, validated in schemas), position, todos_suggested_hash (md5 of content when todo suggestions last ran)
 - **NoteVersion** — id, note_id, title, content, version_number
 - **NoteChunk** — id, note_id, chunk_text, chunk_index, embedding (pgvector Vector); `updated_at` is stamped with the note's `updated_at` at embedding time (used by the worker for staleness)
 - **Setting** — id, user_id, key, value (user-scoped key-value store for LLM config overrides)
@@ -72,7 +72,7 @@ Thirteen models in `apps/api/app/models/__init__.py`:
 - **NoteLink** — id, source_note_id, target_note_id, link_text (`[[wikilinks]]` between notes)
 - **AiWorkflow** — id, user_id, name, description, prompt_template, context_mode, icon, position
 - **NoteTemplate** — id, user_id, name, description, content, default_tags, icon, position
-- **Reminder** — id, user_id, note_id, title, due_date, is_dismissed, source_text
+- **DismissedSuggestion** — id, user_id, note_id, title (tombstones for dismissed/deleted AI todo suggestions so they aren't suggested again)
 - **NoteEntity** — id, note_id, entity_type, entity_value, context (extracted people/projects/decisions)
 
 `Section.parent_id` enables hierarchical sub-sections. `Note.section_id` uses `ondelete="SET NULL"` (section delete soft-deletes notes, doesn't cascade).
@@ -91,11 +91,11 @@ All registered in `apps/api/app/main.py` under `/api/<prefix>`:
 | `wiki.py` | `/api/wiki` | Wiki synthesis from section notes |
 | `settings.py` | `/api/settings` | User LLM settings CRUD, test connection, activity logs |
 | `import_files.py` | `/api/import` | Bulk file import with LLM categorization + date splitting |
-| `todos.py` | `/api/todos` | Todo CRUD, LLM-suggested todos from notes, priority inference |
+| `todos.py` | `/api/todos` | Todo CRUD, LLM-suggested todos from notes (suggest/accept/dismiss, duplicate cleanup), priority inference |
 | `mcp_connections.py` | `/api/mcp-connections` | CRUD for external MCP server configs |
 | `backup.py` | `/api/backup` | Export/restore zip archives; list/download the user's own auto-backups |
 | `workflows.py` | `/api/workflows` | Custom AI workflows (prompt templates) and streaming runs |
-| `reminders.py` | `/api/reminders` | Reminders extracted from notes |
+| `reminders.py` | `/api/reminders` | Read-only view: open todos overdue or due within 7 days (there is no separate reminder store) |
 | `templates.py` | `/api/templates` | Note templates |
 | `dashboard.py` | `/api/dashboard` | Dashboard stats, daily briefing, reports |
 | `note_links.py` | `/api/note-links` | Backlinks / `[[wikilink]]` resolution |
@@ -224,6 +224,9 @@ Runs a continuous loop in `apps/worker/worker/chunker.py`:
 3. Embeds via `get_embedding_provider()` **before** touching existing chunks; old chunks are replaced in a single commit only when embedding succeeds
 4. Failing notes get in-memory exponential backoff (30 s → 30 min) so they don't starve the batch
 5. Auto-tags (2–6 tags) via `get_chat_provider()` for notes with no tags — the tag update preserves `updated_at` so it doesn't re-trigger embedding
+6. Suggests todos (separately from embedding) for notes whose `md5(content)` differs from `todos_suggested_hash`, edited ≥ 2 min ago and within `TODO_SUGGEST_RECENCY_DAYS` (default 14); notes whose title date is older than that window are skipped
+
+All todo suggestion logic lives in `apps/api/app/services/todo_suggestions.py` (prompt, JSON parsing, validity/confidence filters, near-duplicate matching against existing todos and `DismissedSuggestion` tombstones). Use it from any code that creates `is_suggested` todos.
 
 `apps/worker/worker/backup.py` writes per-user auto-backups to `/backups` as `{user_id}_{timestamp}.zip`.
 
