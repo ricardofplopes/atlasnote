@@ -7,7 +7,7 @@ import uuid
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_, text
+from sqlalchemy import select, delete, and_, func, text
 
 from app.core.database import get_db
 from app.models import User, Note, NoteLink, NoteChunk
@@ -41,7 +41,7 @@ async def parse_and_store_links(note_id: uuid.UUID, content: str, user_id: uuid.
             select(Note.id).where(
                 Note.user_id == user_id,
                 Note.is_deleted == False,
-                Note.title.ilike(link_text.strip()),
+                func.lower(Note.title) == link_text.strip().lower(),
             ).limit(1)
         )
         target_id = result.scalar_one_or_none()

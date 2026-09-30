@@ -136,6 +136,30 @@ async def move_section(
     return section
 
 
+# Static paths must be declared before "/{slug}" or they are shadowed.
+@router.put("/reorder", response_model=list[SectionResponse])
+async def reorder_sections(
+    data: SectionReorder,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder sections by providing an ordered list of section IDs."""
+    for idx, section_id in enumerate(data.section_ids):
+        result = await db.execute(
+            select(Section).where(Section.id == section_id, Section.user_id == user.id)
+        )
+        section = result.scalar_one_or_none()
+        if section:
+            section.position = idx
+    result = await db.execute(
+        select(Section)
+        .options(selectinload(Section.children, recursion_depth=-1))
+        .where(Section.user_id == user.id, Section.parent_id.is_(None))
+        .order_by(Section.name)
+    )
+    return result.scalars().all()
+
+
 @router.get("/{slug}", response_model=SectionResponse)
 async def get_section(
     slug: str,
@@ -215,26 +239,3 @@ async def toggle_archive(
     section.is_archived = not section.is_archived
     section.updated_at = datetime.now(timezone.utc)
     return section
-
-
-@router.put("/reorder", response_model=list[SectionResponse])
-async def reorder_sections(
-    data: SectionReorder,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Reorder sections by providing an ordered list of section IDs."""
-    for idx, section_id in enumerate(data.section_ids):
-        result = await db.execute(
-            select(Section).where(Section.id == section_id, Section.user_id == user.id)
-        )
-        section = result.scalar_one_or_none()
-        if section:
-            section.position = idx
-    result = await db.execute(
-        select(Section)
-        .options(selectinload(Section.children, recursion_depth=-1))
-        .where(Section.user_id == user.id, Section.parent_id.is_(None))
-        .order_by(Section.name)
-    )
-    return result.scalars().all()
