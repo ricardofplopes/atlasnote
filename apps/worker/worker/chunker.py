@@ -1,17 +1,19 @@
-"""Chunking, embedding, and auto-tagging pipeline."""
+"""Chunking, embedding, auto-tagging and todo-suggestion pipeline."""
 import asyncio
 import json
 import logging
+import os
 import re
 import time
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 
-from sqlalchemy import select, and_, delete, exists, tuple_
+from sqlalchemy import select, delete, exists, func, tuple_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from app.models import Base, Note, NoteChunk, Todo
+from app.models import Note, NoteChunk
 from app.core.config import get_settings
 from app.services.llm import get_chat_provider, get_embedding_provider, get_user_llm_config, get_chat_provider_from_config, get_embedding_provider_from_config, get_provider_info
+from app.services.todo_suggestions import suggest_todos_for_note, mark_note_suggested, title_date
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -42,40 +44,6 @@ Note title: {title}
 Note content:
 {content}"""
 
-EXTRACT_TODOS_PROMPT = """You are a productivity assistant. Analyze the following note and extract any actionable TODO items.
-
-Look for:
-- Action items explicitly mentioned (e.g., "need to...", "should...", "TODO:", "follow up on...")
-- Commitments or promises made
-- Deadlines or time-sensitive tasks (infer due dates from context like "by Friday", "next week", "end of month")
-- Questions that need answers or research
-- Urgency indicators (e.g., "urgent", "ASAP", "critical", "blocker")
-
-Note title: {title}
-
-Today's date: {today}
-
-Note content (first 3000 chars):
-{content}
-
-Return a JSON array of TODO items. Each item should have:
-- "title": short actionable description (max 100 chars)
-- "description": additional context (optional)
-- "priority": one of "urgent", "high", "medium", "low", "none" — infer from language urgency/importance
-- "due_date": ISO date string (YYYY-MM-DD) if a deadline is mentioned or can be reasonably inferred, otherwise null
-
-Priority guidelines:
-- "urgent": explicit urgency words (ASAP, urgent, blocker, critical, immediately)
-- "high": important items with near deadlines or strong emphasis
-- "medium": standard action items with some importance
-- "low": nice-to-have, research, or exploratory tasks
-- "none": generic items with no urgency signal
-
-If no TODOs are found, return an empty array [].
-
-Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout", "priority": "high", "due_date": "2026-05-02"}}]
-
-Return ONLY valid JSON, no extra text."""
 
 
 async def extract_tags(title: str, content: str, provider=None, existing_workspace_tags: str = "none yet") -> list[str]:
@@ -226,98 +194,35 @@ async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, 
         logger.info(f"Auto-tagged note {note_id}: {tags}")
 
 
-async def auto_suggest_todos(note_id, user_id, title: str, content: str, session: AsyncSession, chat_provider=None):
-    """Use LLM to extract TODO suggestions from a note."""
-    if not content.strip():
-        return
-
-    # Check if we already suggested todos for this note
-    existing = await session.execute(
-        select(Todo).where(Todo.note_id == note_id, Todo.is_suggested == True)
-    )
-    if existing.scalars().first():
-        return  # Already suggested
-
-    try:
-        provider = chat_provider or get_chat_provider()
-        prompt = EXTRACT_TODOS_PROMPT.format(
-            title=title,
-            content=content[:3000],
-            today=date.today().isoformat(),
-        )
-        result = await provider.chat([
-            {"role": "system", "content": "You are a TODO extraction assistant. Return only valid JSON arrays."},
-            {"role": "user", "content": prompt},
-        ], temperature=0.1)
-
-        result = result.strip()
-        if result.startswith("```"):
-            result = re.sub(r"```\w*\n?", "", result).strip().rstrip("`")
-
-        suggestions = json.loads(result)
-        if not isinstance(suggestions, list) or len(suggestions) == 0:
-            return
-
-        # Get max position for user
-        from sqlalchemy import func as sa_func
-        pos_result = await session.execute(
-            select(sa_func.coalesce(sa_func.max(Todo.position), -1)).where(Todo.user_id == user_id)
-        )
-        max_pos = pos_result.scalar()
-
-        created = 0
-        for i, suggestion in enumerate(suggestions[:5]):  # Cap at 5 per note
-            todo_title = str(suggestion.get("title", "")).strip()
-            if not todo_title:
-                continue
-
-            # Parse priority
-            raw_priority = str(suggestion.get("priority", "none")).lower().strip()
-            priority = raw_priority if raw_priority in ("urgent", "high", "medium", "low", "none") else "none"
-
-            # Parse due_date
-            raw_due = suggestion.get("due_date")
-            due_date_val = None
-            if raw_due:
-                try:
-                    due_date_val = date.fromisoformat(str(raw_due).strip())
-                except (ValueError, TypeError):
-                    pass
-
-            todo = Todo(
-                user_id=user_id,
-                note_id=note_id,
-                title=todo_title[:500],
-                description=suggestion.get("description"),
-                priority=priority,
-                due_date=due_date_val,
-                is_suggested=True,
-                position=max_pos + 1 + i,
-            )
-            session.add(todo)
-            created += 1
-
-        if created > 0:
-            await session.commit()
-            logger.info(f"Auto-suggested {created} todos from note {note_id}")
-
-    except Exception as e:
-        logger.warning(f"Auto-suggest todos failed for note {note_id}: {e}")
-
-
 RETRY_BASE_SECONDS = 30
 RETRY_MAX_SECONDS = 30 * 60
 BATCH_SIZE = 10
 
 # note_id -> (attempts, retry_at monotonic time, note.updated_at at failure). In-memory: resets on restart.
 _failures: dict = {}
+_suggest_failures: dict = {}
+
+# Automatic todo suggestions: only for notes edited in the last N days, once they've been
+# left alone for a couple of minutes, and at most a few notes per loop.
+TODO_SUGGEST_RECENCY_DAYS = int(os.environ.get("TODO_SUGGEST_RECENCY_DAYS", "14"))
+TODO_SUGGEST_DEBOUNCE = timedelta(minutes=2)
+TODO_SUGGEST_BATCH = 5
 
 
-def _record_failure(note_id, updated_at) -> tuple[int, int]:
-    attempts = _failures.get(note_id, (0, 0.0, None))[0] + 1
+def _record_failure(note_id, updated_at, failures: dict = _failures) -> tuple[int, int]:
+    attempts = failures.get(note_id, (0, 0.0, None))[0] + 1
     delay = min(RETRY_BASE_SECONDS * 2 ** (attempts - 1), RETRY_MAX_SECONDS)
-    _failures[note_id] = (attempts, time.monotonic() + delay, updated_at)
+    failures[note_id] = (attempts, time.monotonic() + delay, updated_at)
     return attempts, delay
+
+
+def _exclude_backoff(query, failures: dict):
+    """Skip notes still in backoff, unless they were edited since the failure."""
+    now = time.monotonic()
+    backoff = [(nid, ts) for nid, (_, retry_at, ts) in failures.items() if retry_at > now and ts is not None]
+    if backoff:
+        query = query.where(~tuple_(Note.id, Note.updated_at).in_(backoff))
+    return query
 
 
 async def _select_stale_notes(session: AsyncSession) -> list[Note]:
@@ -333,12 +238,7 @@ async def _select_stale_notes(session: AsyncSession) -> list[Note]:
         ~fresh_chunk,
     )
 
-    # Skip notes still in backoff, unless they were edited since the failure.
-    now = time.monotonic()
-    backoff = [(nid, ts) for nid, (_, retry_at, ts) in _failures.items() if retry_at > now and ts is not None]
-    if backoff:
-        query = query.where(~tuple_(Note.id, Note.updated_at).in_(backoff))
-
+    query = _exclude_backoff(query, _failures)
     result = await session.execute(query.order_by(Note.updated_at.desc()).limit(BATCH_SIZE))
     return list(result.scalars().all())
 
@@ -353,6 +253,44 @@ async def _clear_chunks_of_empty_notes(session: AsyncSession) -> None:
     if result.rowcount:
         await session.commit()
         logger.info(f"Removed {result.rowcount} chunks from notes with empty content")
+
+
+async def _suggest_for_changed_notes(session: AsyncSession) -> None:
+    """Suggest todos for recently edited notes whose content changed since the last run."""
+    now = datetime.now(timezone.utc)
+    query = select(Note).where(
+        Note.is_deleted == False,
+        Note.content.op("~")(r"\S"),
+        Note.todos_suggested_hash.is_distinct_from(func.md5(Note.content)),
+        Note.updated_at <= now - TODO_SUGGEST_DEBOUNCE,
+        Note.updated_at >= now - timedelta(days=TODO_SUGGEST_RECENCY_DAYS),
+    )
+    query = _exclude_backoff(query, _suggest_failures)
+    notes = list((await session.execute(query.order_by(Note.updated_at.desc()).limit(TODO_SUGGEST_BATCH))).scalars())
+    # Detach so a rollback doesn't expire them (lazy loads aren't allowed in async sessions).
+    for note in notes:
+        session.expunge(note)
+
+    oldest_relevant = date.today() - timedelta(days=TODO_SUGGEST_RECENCY_DAYS)
+    for note in notes:
+        try:
+            dated = title_date(note.title)
+            if dated and dated < oldest_relevant:
+                # Notes about old meetings (e.g. imported history) don't get suggestions.
+                await mark_note_suggested(session, note.id, note.content)
+                await session.commit()
+                continue
+
+            user_cfg = await get_user_llm_config(note.user_id, session)
+            provider = get_chat_provider_from_config(user_cfg)
+            created = await suggest_todos_for_note(session, note, provider)
+            await session.commit()
+            _suggest_failures.pop(note.id, None)
+            logger.info(f"Suggested {len(created)} todos from note {note.id}")
+        except Exception as e:
+            await session.rollback()
+            attempts, delay = _record_failure(note.id, note.updated_at, _suggest_failures)
+            logger.warning(f"Todo suggestion failed for note {note.id} (attempt {attempts}, retrying in {delay}s): {e}")
 
 
 async def run_worker():
@@ -387,10 +325,12 @@ async def run_worker():
 
                     try:
                         await auto_tag_note(note_id, title, content, tags, session, chat_provider=chat_prov, user_id=user_id)
-                        await auto_suggest_todos(note_id, user_id, title, content, session, chat_provider=chat_prov)
                     except Exception as e:
-                        logger.warning(f"Post-processing failed for note {note_id}: {e}")
+                        logger.warning(f"Auto-tagging failed for note {note_id}: {e}")
                         await session.rollback()
+
+            async with async_session() as session:
+                await _suggest_for_changed_notes(session)
 
         except Exception as e:
             logger.error(f"Worker loop error: {e}")

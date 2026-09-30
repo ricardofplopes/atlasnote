@@ -894,18 +894,43 @@ Note content:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Meeting extraction failed: {str(e)}")
 
-    # Optionally create todos from action items
-    if create_todos and meeting_data.get("action_items"):
-        for item in meeting_data["action_items"]:
-            todo = Todo(
+    # Optionally create todos from action items, skipping invalid ones and ones already tracked or dismissed.
+    todos_created = 0
+    if create_todos and isinstance(meeting_data.get("action_items"), list):
+        from app.services.todo_suggestions import (
+            filter_suggestions, load_tracked_titles, note_reference_date, next_todo_position,
+        )
+        candidates = [
+            {
+                "title": item.get("task"),
+                "description": f"Assigned to: {item.get('assignee') or 'unassigned'}",
+                "priority": "medium",
+                "due_date": item.get("due_date"),
+            }
+            for item in meeting_data["action_items"]
+            if isinstance(item, dict)
+        ]
+        same_note, other = await load_tracked_titles(db, user.id, note.id)
+        items = filter_suggestions(
+            candidates,
+            note_date=note_reference_date(note),
+            same_note_titles=same_note,
+            other_titles=other,
+            max_items=10,
+        )
+        position = await next_todo_position(db, user.id)
+        for i, item in enumerate(items):
+            db.add(Todo(
                 user_id=user.id,
                 note_id=note_id,
-                title=item.get("task", "Untitled action item"),
-                description=f"Assigned to: {item.get('assignee', 'unassigned')}",
+                title=item["title"],
+                description=item["description"],
+                due_date=item["due_date"],
                 is_suggested=True,
-                priority="medium",
-            )
-            db.add(todo)
+                priority=item["priority"],
+                position=position + i,
+            ))
+        todos_created = len(items)
         await db.flush()
 
     return {
@@ -914,6 +939,7 @@ Note content:
         "decisions": meeting_data.get("decisions", []),
         "follow_ups": meeting_data.get("follow_ups", []),
         "summary": meeting_data.get("summary", ""),
+        "todos_created": todos_created,
     }
 
 

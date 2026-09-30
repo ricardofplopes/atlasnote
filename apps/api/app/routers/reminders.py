@@ -1,16 +1,64 @@
-import logging
+"""Reminders: open todos with a due date that is overdue or coming up soon.
 
-from fastapi import APIRouter, Depends, HTTPException
+There is no separate reminder store; set a due date on a todo to get reminded about it.
+"""
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case
 
 from app.core.database import get_db
-from app.models import User, Note, Reminder, Todo
-from app.schemas import ReminderResponse, TodoResponse
+from app.models import User, Note, Todo
+from app.schemas import ReminderItem
 from app.routers.auth import get_current_user
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+
+REMINDER_WINDOW_DAYS = 7
+
+
+def due_soon_filter(user_id, days: int = REMINDER_WINDOW_DAYS):
+    """Open todos of the user that are overdue or due within `days` days."""
+    return (
+        Todo.user_id == user_id,
+        Todo.is_done == False,
+        Todo.due_date.isnot(None),
+        Todo.due_date <= date.today() + timedelta(days=days),
+    )
+
+
+async def list_due_soon(db: AsyncSession, user_id, days: int = REMINDER_WINDOW_DAYS, limit: int | None = None) -> list[ReminderItem]:
+    priority_rank = case(
+        (Todo.priority == "urgent", 4),
+        (Todo.priority == "high", 3),
+        (Todo.priority == "medium", 2),
+        (Todo.priority == "low", 1),
+        else_=0,
+    )
+    query = (
+        select(Todo, Note.title.label("note_title"))
+        .outerjoin(Note, Todo.note_id == Note.id)
+        .where(*due_soon_filter(user_id, days))
+        .order_by(Todo.due_date.asc(), priority_rank.desc(), Todo.position.asc())
+    )
+    if limit:
+        query = query.limit(limit)
+    today = date.today()
+    return [
+        ReminderItem(
+            id=todo.id,
+            title=todo.title,
+            due_date=todo.due_date,
+            priority=todo.priority or "none",
+            note_id=todo.note_id,
+            note_title=note_title,
+            is_suggested=bool(todo.is_suggested),
+            days_until=(todo.due_date - today).days,
+            is_overdue=todo.due_date < today,
+        )
+        for todo, note_title in (await db.execute(query)).all()
+    ]
 
 
 @router.get("/count")
@@ -18,87 +66,16 @@ async def reminder_count(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return count of active (non-dismissed) reminders."""
-    result = await db.execute(
-        select(func.count())
-        .select_from(Reminder)
-        .where(Reminder.user_id == user.id, Reminder.is_dismissed == False)
-    )
+    """Number of open todos that are overdue or due within the next 7 days."""
+    result = await db.execute(select(func.count()).select_from(Todo).where(*due_soon_filter(user.id)))
     return {"count": result.scalar()}
 
 
-@router.get("/", response_model=list[ReminderResponse])
+@router.get("/", response_model=list[ReminderItem])
 async def list_reminders(
+    days: int = Query(REMINDER_WINDOW_DAYS, ge=0, le=365),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List active reminders ordered by due_date (nulls last)."""
-    result = await db.execute(
-        select(Reminder, Note.title.label("note_title"))
-        .outerjoin(Note, Reminder.note_id == Note.id)
-        .where(Reminder.user_id == user.id, Reminder.is_dismissed == False)
-        .order_by(
-            case((Reminder.due_date.is_(None), 1), else_=0),
-            Reminder.due_date.asc(),
-        )
-    )
-    rows = result.all()
-    reminders = []
-    for reminder, note_title in rows:
-        resp = ReminderResponse.model_validate(reminder)
-        resp.note_title = note_title
-        reminders.append(resp)
-    return reminders
-
-
-@router.post("/{reminder_id}/dismiss", status_code=204)
-async def dismiss_reminder(
-    reminder_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Dismiss a reminder."""
-    result = await db.execute(
-        select(Reminder).where(Reminder.id == reminder_id, Reminder.user_id == user.id)
-    )
-    reminder = result.scalar_one_or_none()
-    if not reminder:
-        raise HTTPException(status_code=404, detail="Reminder not found")
-
-    reminder.is_dismissed = True
-    await db.flush()
-
-
-@router.post("/{reminder_id}/convert-todo", response_model=TodoResponse)
-async def convert_to_todo(
-    reminder_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Create a Todo from the reminder, then dismiss it."""
-    result = await db.execute(
-        select(Reminder).where(Reminder.id == reminder_id, Reminder.user_id == user.id)
-    )
-    reminder = result.scalar_one_or_none()
-    if not reminder:
-        raise HTTPException(status_code=404, detail="Reminder not found")
-
-    # Get next position
-    pos_result = await db.execute(
-        select(func.coalesce(func.max(Todo.position), -1)).where(Todo.user_id == user.id)
-    )
-    max_pos = pos_result.scalar()
-
-    todo = Todo(
-        user_id=user.id,
-        note_id=reminder.note_id,
-        title=reminder.title,
-        description=reminder.source_text,
-        position=max_pos + 1,
-    )
-    db.add(todo)
-
-    reminder.is_dismissed = True
-    await db.flush()
-
-    return todo
+    """Open todos that are overdue or due within `days` days, soonest first."""
+    return await list_due_soon(db, user.id, days)

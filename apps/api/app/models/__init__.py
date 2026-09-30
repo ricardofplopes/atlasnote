@@ -69,6 +69,8 @@ class Note(Base):
 
     source_url = Column(String(2048), nullable=True)
     position = Column(Integer, default=0, nullable=False)
+    # md5 of `content` when AI todo suggestions last ran (matches Postgres md5(content)).
+    todos_suggested_hash = Column(String(32), nullable=True)
 
     user = relationship("User", back_populates="notes")
     section = relationship("Section", back_populates="notes")
@@ -239,24 +241,18 @@ class NoteTemplate(Base):
     )
 
 
-class Reminder(Base):
-    __tablename__ = "reminders"
+class DismissedSuggestion(Base):
+    """Tombstone for a dismissed AI todo suggestion, so it isn't suggested again."""
+    __tablename__ = "dismissed_suggestions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), nullable=True)
+    note_id = Column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
     title = Column(String(500), nullable=False)
-    due_date = Column(DateTime(timezone=True), nullable=True)
-    is_dismissed = Column(Boolean, default=False)
-    source_text = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
-    user = relationship("User", backref="reminders")
-    note = relationship("Note", backref="reminders")
-
     __table_args__ = (
-        Index("ix_reminders_user", "user_id"),
-        Index("ix_reminders_user_active", "user_id", "is_dismissed"),
+        Index("ix_dismissed_suggestions_user", "user_id", "created_at"),
     )
 
 

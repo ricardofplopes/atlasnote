@@ -6,11 +6,12 @@ from datetime import datetime, timezone, timedelta, date
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 
 from app.core.database import get_db
-from app.models import User, Note, Section, Todo, Reminder
+from app.models import User, Note, Section, Todo
 from app.routers.auth import get_current_user
+from app.routers.reminders import list_due_soon, REMINDER_WINDOW_DAYS
 from app.services.llm import get_user_llm_config, get_chat_provider_from_config
 
 logger = logging.getLogger(__name__)
@@ -56,12 +57,14 @@ class PendingTodo(BaseModel):
 
 
 class UpcomingReminder(BaseModel):
+    """An open todo that is overdue or due within the next 7 days."""
     id: str
     title: str
-    due_date: datetime | None = None
+    due_date: str
     note_id: str | None = None
-
-    model_config = {"from_attributes": True}
+    note_title: str | None = None
+    priority: str = "none"
+    is_overdue: bool = False
 
 
 class DashboardResponse(BaseModel):
@@ -176,7 +179,7 @@ async def get_dashboard(
         for row in pinned_result.all()
     ]
 
-    # Pending todos (top 5, sorted by priority)
+    # Pending todos (top 5, sorted by priority); todos due soon are shown as reminders instead.
     from sqlalchemy import case as sa_case
     priority_rank = sa_case(
         (Todo.priority == "urgent", 4),
@@ -192,7 +195,11 @@ async def get_dashboard(
     )
     todos_query_result = await db.execute(
         select(Todo.id, Todo.title, Todo.note_id, Todo.priority, Todo.due_date)
-        .where(Todo.user_id == user.id, Todo.is_done == False)
+        .where(
+            Todo.user_id == user.id,
+            Todo.is_done == False,
+            or_(Todo.due_date.is_(None), Todo.due_date > date.today() + timedelta(days=REMINDER_WINDOW_DAYS)),
+        )
         .order_by(overdue_rank.asc(), priority_rank.desc(), Todo.position.asc())
         .limit(5)
     )
@@ -207,27 +214,18 @@ async def get_dashboard(
         for row in todos_query_result.all()
     ]
 
-    # Reminders due within 7 days
-    reminder_cutoff = now + timedelta(days=7)
-    reminders_result = await db.execute(
-        select(Reminder.id, Reminder.title, Reminder.due_date, Reminder.note_id)
-        .where(
-            and_(
-                Reminder.user_id == user.id,
-                Reminder.is_dismissed == False,
-                Reminder.due_date <= reminder_cutoff,
-            )
-        )
-        .order_by(Reminder.due_date.asc())
-    )
+    # Reminders: open todos overdue or due within 7 days
     reminders = [
         UpcomingReminder(
-            id=str(row.id),
-            title=row.title,
-            due_date=row.due_date,
-            note_id=str(row.note_id) if row.note_id else None,
+            id=str(r.id),
+            title=r.title,
+            due_date=r.due_date.isoformat(),
+            note_id=str(r.note_id) if r.note_id else None,
+            note_title=r.note_title,
+            priority=r.priority,
+            is_overdue=r.is_overdue,
         )
-        for row in reminders_result.all()
+        for r in await list_due_soon(db, user.id, limit=8)
     ]
 
     return DashboardResponse(
@@ -330,7 +328,6 @@ async def get_daily_briefing(
     today = date.today()
     yesterday_start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     yesterday_end = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    three_days_later = now + timedelta(days=3)
 
     # Notes updated yesterday
     notes_result = await db.execute(
@@ -357,15 +354,15 @@ async def get_daily_briefing(
     )
     overdue_todos = overdue_result.all()
 
-    # Todos due today or tomorrow
-    tomorrow = today + timedelta(days=1)
+    # Todos due in the next 3 days
+    three_days_later = today + timedelta(days=3)
     due_soon_result = await db.execute(
         select(Todo.title, Todo.due_date)
         .where(
             Todo.user_id == user.id,
             Todo.is_done == False,
             Todo.due_date >= today,
-            Todo.due_date <= tomorrow,
+            Todo.due_date <= three_days_later,
         )
         .order_by(Todo.due_date.asc())
     )
@@ -383,22 +380,6 @@ async def get_daily_briefing(
     )
     high_priority_todos = high_priority_result.all()
 
-    # Upcoming reminders (next 3 days)
-    reminders_result = await db.execute(
-        select(Reminder.title, Reminder.due_date)
-        .where(
-            and_(
-                Reminder.user_id == user.id,
-                Reminder.is_dismissed == False,
-                Reminder.due_date <= three_days_later,
-                Reminder.due_date >= now,
-            )
-        )
-        .order_by(Reminder.due_date.asc())
-        .limit(10)
-    )
-    upcoming_reminders = reminders_result.all()
-
     # Build context for LLM
     context_parts = []
     if yesterday_notes:
@@ -413,7 +394,7 @@ async def get_daily_briefing(
             context_parts.append(f"- {t.title} (due: {t.due_date})")
 
     if due_soon_todos:
-        context_parts.append("\nTodos due today/tomorrow:")
+        context_parts.append("\nTodos due in the next 3 days:")
         for t in due_soon_todos:
             context_parts.append(f"- {t.title} (due: {t.due_date})")
 
@@ -421,11 +402,6 @@ async def get_daily_briefing(
         context_parts.append("\nHigh-priority pending todos:")
         for t in high_priority_todos:
             context_parts.append(f"- {t.title} (priority: {t.priority})")
-
-    if upcoming_reminders:
-        context_parts.append("\nUpcoming reminders (next 3 days):")
-        for r in upcoming_reminders:
-            context_parts.append(f"- {r.title} (due: {r.due_date})")
 
     if not context_parts:
         return BriefingResponse(

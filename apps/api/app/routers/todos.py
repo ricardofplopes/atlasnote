@@ -3,14 +3,15 @@ import logging
 import re
 from datetime import date, datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, and_
 
 from app.core.database import get_db
 from app.models import User, Note, Todo
 from app.schemas import TodoCreate, TodoUpdate, TodoResponse, TodoSuggestion
-from app.services.llm import get_chat_provider, get_user_llm_config, get_chat_provider_from_config
+from app.services.llm import get_user_llm_config, get_chat_provider_from_config
+from app.services.todo_suggestions import suggest_todos_for_note, find_duplicate_suggestions, remember_dismissed
 from app.routers.auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -18,40 +19,6 @@ router = APIRouter()
 
 PRIORITY_ORDER = {"urgent": 4, "high": 3, "medium": 2, "low": 1, "none": 0}
 
-SUGGEST_TODOS_PROMPT = """You are a productivity assistant. Analyze the following note and extract any actionable TODO items.
-
-Look for:
-- Action items explicitly mentioned (e.g., "need to...", "should...", "TODO:", "follow up on...")
-- Commitments or promises made
-- Deadlines or time-sensitive tasks (infer due dates from context like "by Friday", "next week", "end of month")
-- Questions that need answers or research
-- Urgency indicators (e.g., "urgent", "ASAP", "critical", "blocker")
-
-Note title: {title}
-
-Today's date: {today}
-
-Note content:
-{content}
-
-Return a JSON array of TODO items. Each item should have:
-- "title": short actionable description (max 100 chars)
-- "description": additional context (optional)
-- "priority": one of "urgent", "high", "medium", "low", "none" — infer from language urgency/importance
-- "due_date": ISO date string (YYYY-MM-DD) if a deadline is mentioned or can be reasonably inferred, otherwise null
-
-Priority guidelines:
-- "urgent": explicit urgency words (ASAP, urgent, blocker, critical, immediately)
-- "high": important items with near deadlines or strong emphasis
-- "medium": standard action items with some importance
-- "low": nice-to-have, research, or exploratory tasks
-- "none": generic items with no urgency signal
-
-If no TODOs are found, return an empty array [].
-
-Example: [{{"title": "Schedule meeting with design team", "description": "Discuss the new dashboard layout", "priority": "high", "due_date": "2026-05-02"}}, {{"title": "Research caching options", "description": "Look into Redis vs in-memory", "priority": "low", "due_date": null}}]
-
-Return ONLY valid JSON, no extra text."""
 
 
 @router.get("/", response_model=list[TodoResponse])
@@ -256,6 +223,36 @@ async def infer_priorities(
     return {"updated": updated_count, "suggestions": result_suggestions}
 
 
+@router.post("/suggestions/dedupe")
+async def dedupe_suggestions(
+    dry_run: bool = Query(False, description="Only report what would be removed"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove open AI-suggested todos that duplicate another open todo.
+
+    Keeps the best todo of each group (manual, edited, with due date, higher priority, newest).
+    Removed suggestions are remembered so they aren't suggested again. Done todos are never touched.
+    """
+    groups = await find_duplicate_suggestions(db, user.id)
+    removed = 0
+    report = []
+    for kept, dupes in groups:
+        report.append({
+            "kept": {"id": str(kept.id), "title": kept.title, "note_id": str(kept.note_id) if kept.note_id else None},
+            "removed": [{"id": str(d.id), "title": d.title, "note_id": str(d.note_id) if d.note_id else None} for d in dupes],
+        })
+        if not dry_run:
+            for dupe in dupes:
+                remember_dismissed(db, dupe)
+                await db.delete(dupe)
+        removed += len(dupes)
+    if not dry_run:
+        await db.flush()
+        logger.info(f"Removed {removed} duplicate suggested todos for user {user.id}")
+    return {"dry_run": dry_run, "removed": removed, "groups": report}
+
+
 @router.put("/{todo_id}", response_model=TodoResponse)
 async def update_todo(
     todo_id: str,
@@ -293,7 +290,7 @@ async def delete_todo(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a todo."""
+    """Delete a todo. Deleted AI suggestions are remembered so they aren't suggested again."""
     result = await db.execute(
         select(Todo).where(Todo.id == todo_id, Todo.user_id == user.id)
     )
@@ -301,6 +298,8 @@ async def delete_todo(
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
 
+    if todo.is_suggested and not todo.is_done:
+        remember_dismissed(db, todo)
     await db.delete(todo)
     await db.flush()
 
@@ -330,9 +329,9 @@ async def suggest_todos(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Use LLM to suggest TODOs from a note's content."""
+    """Use the LLM to suggest new todos from a note, skipping ones already tracked or dismissed."""
     result = await db.execute(
-        select(Note).where(Note.id == note_id, Note.user_id == user.id)
+        select(Note).where(Note.id == note_id, Note.user_id == user.id, Note.is_deleted == False)
     )
     note = result.scalar_one_or_none()
     if not note:
@@ -340,69 +339,14 @@ async def suggest_todos(
 
     user_cfg = await get_user_llm_config(user.id, db)
     provider = get_chat_provider_from_config(user_cfg)
-    prompt = SUGGEST_TODOS_PROMPT.format(
-        title=note.title,
-        content=note.content[:4000],
-        today=date.today().isoformat(),
-    )
-
     try:
-        response = await provider.chat(
-            [{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
-        response = response.strip()
-        if response.startswith("```"):
-            response = response.split("\n", 1)[1].rsplit("```", 1)[0]
-        suggestions = json.loads(response)
-    except (json.JSONDecodeError, Exception) as e:
+        created = await suggest_todos_for_note(db, note, provider, max_items=5)
+    except Exception as e:
         logger.warning(f"Todo suggestion failed for note {note_id}: {e}")
-        return []
+        raise HTTPException(status_code=502, detail="Todo suggestion failed; check the LLM settings")
 
-    if not isinstance(suggestions, list):
-        return []
-
-    # Get next position
-    pos_result = await db.execute(
-        select(func.coalesce(func.max(Todo.position), -1)).where(Todo.user_id == user.id)
-    )
-    max_pos = pos_result.scalar()
-
-    created_todos = []
-    for i, suggestion in enumerate(suggestions[:10]):
-        title = str(suggestion.get("title", "")).strip()
-        if not title:
-            continue
-
-        # Parse priority
-        raw_priority = str(suggestion.get("priority", "none")).lower().strip()
-        priority = raw_priority if raw_priority in PRIORITY_ORDER else "none"
-
-        # Parse due_date
-        raw_due = suggestion.get("due_date")
-        due_date_val = None
-        if raw_due:
-            try:
-                due_date_val = date.fromisoformat(str(raw_due).strip())
-            except (ValueError, TypeError):
-                pass
-
-        todo = Todo(
-            user_id=user.id,
-            note_id=note.id,
-            title=title[:500],
-            description=suggestion.get("description"),
-            priority=priority,
-            due_date=due_date_val,
-            is_suggested=True,
-            position=max_pos + 1 + i,
-        )
-        db.add(todo)
-        await db.flush()
-        created_todos.append(todo)
-
-    logger.info(f"Suggested {len(created_todos)} todos from note {note_id}")
-    return created_todos
+    logger.info(f"Suggested {len(created)} todos from note {note_id}")
+    return created
 
 
 @router.post("/{todo_id}/dismiss", status_code=204)
@@ -411,7 +355,7 @@ async def dismiss_suggestion(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dismiss (delete) a suggested todo."""
+    """Dismiss (delete) a suggested todo and remember it so it isn't suggested again."""
     result = await db.execute(
         select(Todo).where(Todo.id == todo_id, Todo.user_id == user.id, Todo.is_suggested == True)
     )
@@ -419,5 +363,25 @@ async def dismiss_suggestion(
     if not todo:
         raise HTTPException(status_code=404, detail="Suggested todo not found")
 
+    remember_dismissed(db, todo)
     await db.delete(todo)
     await db.flush()
+
+
+@router.post("/{todo_id}/accept", response_model=TodoResponse)
+async def accept_suggestion(
+    todo_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Keep a suggested todo: it becomes a regular todo."""
+    result = await db.execute(
+        select(Todo).where(Todo.id == todo_id, Todo.user_id == user.id, Todo.is_suggested == True)
+    )
+    todo = result.scalar_one_or_none()
+    if not todo:
+        raise HTTPException(status_code=404, detail="Suggested todo not found")
+
+    todo.is_suggested = False
+    await db.flush()
+    return todo

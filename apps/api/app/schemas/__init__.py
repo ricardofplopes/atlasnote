@@ -407,15 +407,14 @@ class SuggestSectionResponse(BaseModel):
     reason: str = ""
 
 
-# --- Reminders ---
-class ReminderResponse(BaseModel):
+# --- Reminders (open todos with an upcoming or past due date) ---
+class ReminderItem(BaseModel):
     id: uuid.UUID
-    note_id: uuid.UUID | None = None
     title: str
-    due_date: datetime | None = None
-    is_dismissed: bool
-    source_text: str | None = None
+    due_date: date
+    priority: str = "none"
+    note_id: uuid.UUID | None = None
     note_title: str | None = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
+    is_suggested: bool = False
+    days_until: int
+    is_overdue: bool
