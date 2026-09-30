@@ -1,0 +1,17 @@
+.git
+.github
+**/.env
+**/.env.*
+!.env.example
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+**/*.log
+**/.DS_Store
+apps/electron/dist
+apps/electron/out
+backups

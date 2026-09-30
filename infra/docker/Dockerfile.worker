@@ -13,5 +13,11 @@ COPY apps/api/app/ /app/app/
 COPY packages/shared/ /app/packages/shared/
 
 ENV PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN useradd --create-home --uid 1000 app \
+    && mkdir -p /backups && chown app:app /backups
+USER app
 
 CMD ["python", "-m", "worker"]

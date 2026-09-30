@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: ${DB_USER:-atlasnote}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-atlasnote}
       POSTGRES_DB: ${DB_NAME:-atlasnote}
+    restart: unless-stopped
+    # Bound to localhost only; containers reach Postgres over the compose network.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
@@ -20,6 +22,7 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -46,6 +49,7 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.worker
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://${DB_USER:-atlasnote}:${DB_PASSWORD:-atlasnote}@postgres:5432/${DB_NAME:-atlasnote}
     env_file:
@@ -64,6 +68,7 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.web
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
@@ -85,8 +90,9 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.mcp
+    restart: unless-stopped
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     environment:
       API_BASE_URL: http://api:8000
       MCP_TRANSPORT: sse

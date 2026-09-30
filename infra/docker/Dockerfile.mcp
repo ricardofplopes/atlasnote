@@ -12,5 +12,10 @@ COPY apps/mcp-server/ .
 COPY packages/shared/ /app/packages/shared/
 
 ENV PYTHONPATH=/app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN useradd --create-home --uid 1000 app
+USER app
 
 CMD ["python", "-m", "mcp_server.server"]
