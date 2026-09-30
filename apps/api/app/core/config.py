@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # App
     CORS_ORIGINS: str = "http://localhost:3000"
     MCP_API_KEY: str = ""
+    MCP_USER_EMAIL: str = ""  # user that MCP_API_KEY requests act as
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

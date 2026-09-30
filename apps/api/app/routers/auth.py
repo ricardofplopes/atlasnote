@@ -1,8 +1,9 @@
 from datetime import datetime, timezone, timedelta
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from jose import jwt, JWTError
 import httpx
 
@@ -18,6 +19,7 @@ settings = get_settings()
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
+OAUTH_HTTP_TIMEOUT = 15.0
 
 
 def create_access_token(user_id: str) -> str:
@@ -26,13 +28,36 @@ def create_access_token(user_id: str) -> str:
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
+def _is_mcp_api_key(token: str) -> bool:
+    return bool(settings.MCP_API_KEY) and secrets.compare_digest(
+        token.encode(), settings.MCP_API_KEY.encode()
+    )
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    token = credentials.credentials
+
+    # The MCP server authenticates with a static API key mapped to MCP_USER_EMAIL.
+    if _is_mcp_api_key(token):
+        if not settings.MCP_USER_EMAIL:
+            raise HTTPException(status_code=401, detail="MCP_USER_EMAIL is not configured")
+        result = await db.execute(
+            select(User)
+            .where(func.lower(User.email) == settings.MCP_USER_EMAIL.strip().lower())
+            .order_by(User.created_at)
+            .limit(1)
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=401, detail="MCP user not found")
+        return user
+
     try:
         payload = jwt.decode(
-            credentials.credentials, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+            token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
         )
         user_id = payload.get("sub")
         if user_id is None:
@@ -74,7 +99,7 @@ async def _upsert_user(
 @router.post("/google", response_model=TokenResponse)
 async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     """Exchange a Google OAuth access token for a JWT."""
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=OAUTH_HTTP_TIMEOUT) as client:
         resp = await client.get(
             GOOGLE_USERINFO_URL,
             headers={"Authorization": f"Bearer {request.token}"},
@@ -100,7 +125,7 @@ async def google_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
 async def github_login(request: GoogleLoginRequest, db: AsyncSession = Depends(get_db)):
     """Exchange a GitHub OAuth code for a JWT."""
     # Exchange code for access token
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=OAUTH_HTTP_TIMEOUT) as client:
         token_resp = await client.post(
             GITHUB_TOKEN_URL,
             json={
@@ -119,7 +144,7 @@ async def github_login(request: GoogleLoginRequest, db: AsyncSession = Depends(g
         raise HTTPException(status_code=401, detail=f"GitHub auth error: {token_data.get('error_description', 'unknown')}")
 
     # Get user info
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=OAUTH_HTTP_TIMEOUT) as client:
         user_resp = await client.get(
             GITHUB_USER_URL,
             headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},

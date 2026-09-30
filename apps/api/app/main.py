@@ -1,7 +1,10 @@
+import hashlib
+import logging
 import time
 from collections import defaultdict
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from jose import jwt as jose_jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import text
 from app.core.config import get_settings
@@ -9,6 +12,19 @@ from app.core.database import get_db
 from app.routers import sections, notes, auth, search, chat, import_files, wiki, settings as settings_router, todos, mcp_connections, backup, workflows, reminders, templates, dashboard, note_links, commands
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+_INSECURE_JWT_SECRETS = {
+    "change-me-in-production",
+    "change-me-to-a-random-secret-in-production",
+    "changeme",
+    "secret",
+}
+if not settings.JWT_SECRET or settings.JWT_SECRET in _INSECURE_JWT_SECRETS or len(settings.JWT_SECRET) < 32:
+    raise RuntimeError(
+        "JWT_SECRET is missing or insecure. Set a random value of at least 32 characters in .env "
+        "(for example: python -c \"import secrets; print(secrets.token_hex(32))\")."
+    )
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -30,6 +46,33 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self._buckets: dict[str, list[float]] = defaultdict(list)
+        self._last_prune = time.time()
+
+    @staticmethod
+    def _client_key(request: Request) -> str:
+        """Identify the caller: JWT subject if present, else a token hash, else client IP."""
+        auth_header = request.headers.get("authorization", "")
+        token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
+        if token:
+            try:
+                # Signature is verified later by get_current_user; this is only for bucketing.
+                sub = jose_jwt.get_unverified_claims(token).get("sub")
+                if sub:
+                    return f"user:{sub}"
+            except Exception:
+                pass
+            return "token:" + hashlib.sha256(token.encode()).hexdigest()[:32]
+        return f"ip:{request.client.host if request.client else 'unknown'}"
+
+    def _prune(self, now: float) -> None:
+        max_window = max(w for _, w in self.LIMITS.values())
+        for key in list(self._buckets.keys()):
+            fresh = [t for t in self._buckets[key] if now - t < max_window]
+            if fresh:
+                self._buckets[key] = fresh
+            else:
+                del self._buckets[key]
+        self._last_prune = now
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -43,12 +86,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if limit_config and request.method in ("POST", "PUT", "PATCH"):
             max_reqs, window = limit_config
-            # Key by user token (or IP if no token)
-            auth_header = request.headers.get("authorization", "")
-            key = f"{path}:{auth_header[:50] if auth_header else request.client.host}"
+            key = f"{path}:{self._client_key(request)}"
 
             now = time.time()
-            # Clean old entries
+            if now - self._last_prune > 300:
+                self._prune(now)
             self._buckets[key] = [t for t in self._buckets[key] if now - t < window]
 
             if len(self._buckets[key]) >= max_reqs:
@@ -105,4 +147,5 @@ async def health():
             await db.execute(text("SELECT 1"))
             return {"status": "ok", "database": "connected"}
     except Exception as e:
-        return {"status": "degraded", "database": str(e)}
+        logger.error(f"Health check database error: {e}")
+        return {"status": "degraded", "database": "unavailable"}

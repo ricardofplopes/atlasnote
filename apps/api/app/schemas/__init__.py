@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Auth ──
@@ -62,12 +62,26 @@ class SectionResponse(BaseModel):
 
 # ── Notes ──
 
+def _validate_source_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    if value and not value.lower().startswith(("http://", "https://")):
+        raise ValueError("source_url must be an http(s) URL")
+    return value
+
+
 class NoteCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     content: str = ""
     tags: list[str] = []
     is_pinned: bool = False
-    source_url: str | None = None
+    source_url: str | None = Field(None, max_length=2048)
+
+    @field_validator("source_url")
+    @classmethod
+    def check_source_url(cls, v: str | None) -> str | None:
+        return _validate_source_url(v)
 
 
 class NoteUpdate(BaseModel):
@@ -75,7 +89,12 @@ class NoteUpdate(BaseModel):
     content: str | None = None
     tags: list[str] | None = None
     is_pinned: bool | None = None
-    source_url: str | None = None
+    source_url: str | None = Field(None, max_length=2048)
+
+    @field_validator("source_url")
+    @classmethod
+    def check_source_url(cls, v: str | None) -> str | None:
+        return _validate_source_url(v)
 
 
 class NoteMoveRequest(BaseModel):
