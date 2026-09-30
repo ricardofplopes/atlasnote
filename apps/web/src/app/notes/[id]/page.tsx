@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import { remarkPlugins, markdownComponents } from "@/lib/markdown-config";
+import { safeHttpUrl } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -189,6 +190,7 @@ function NoteContent() {
   const router = useRouter();
   const noteId = params.id as string;
   const [note, setNote] = useState<Note | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -216,24 +218,46 @@ function NoteContent() {
   const [templateName, setTemplateName] = useState("");
   const [savingTemplate, setSavingTemplate] = useState(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadRequestRef = useRef(0);
   const { success: toastSuccess, error: toastError } = useToast();
   const { confirm } = useConfirm();
 
-  const load = () => {
-    getNote(noteId).then((n) => {
+  const load = useCallback(async (resetNote = false) => {
+    const requestId = ++loadRequestRef.current;
+    setLoadError(false);
+    if (resetNote) setNote(null);
+    try {
+      const n = await getNote(noteId);
+      if (requestId !== loadRequestRef.current) return;
       setNote(n);
       setTitle(n.title);
       setContent(n.content);
       setTags((n.tags || []).join(", "));
       setSourceUrl(n.source_url || "");
       setSaveStatus("idle");
-    });
-  };
+    } catch (e) {
+      if (requestId !== loadRequestRef.current) return;
+      console.error("Failed to load note:", e);
+      setNote(null);
+      setLoadError(true);
+      setSaveStatus("idle");
+    }
+  }, [noteId]);
 
   useEffect(() => {
-    load();
-    getBacklinks(noteId).then(setBacklinks).catch(() => setBacklinks([]));
-  }, [noteId]);
+    let cancelled = false;
+    load(true);
+    getBacklinks(noteId)
+      .then((links) => {
+        if (!cancelled) setBacklinks(links);
+      })
+      .catch(() => {
+        if (!cancelled) setBacklinks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [noteId, load]);
 
   const performSave = useCallback(async (silent = false) => {
     setSaveStatus("saving");
@@ -249,7 +273,7 @@ function NoteContent() {
       // Reload to get updated timestamps
       const n = await getNote(noteId);
       setNote(n);
-    } catch (e) {
+    } catch {
       setSaveStatus("unsaved");
       if (!silent) toastError("Failed to save note");
     }
@@ -339,6 +363,31 @@ function NoteContent() {
   const charCount = content.length;
   const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 
+  if (loadError) {
+    return (
+      <div className="max-w-4xl">
+        <div
+          className="p-6 rounded-xl space-y-4"
+          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+        >
+          <h1 className="text-xl font-display font-bold" style={{ color: "var(--foreground)" }}>
+            Note not found or failed to load
+          </h1>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            The note may have been deleted, or the server could not be reached.
+          </p>
+          <Link
+            href="/"
+            className="inline-flex px-3 py-1.5 text-sm font-semibold rounded-lg text-white"
+            style={{ background: "var(--accent)" }}
+          >
+            Back to home
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   if (!note) {
     return (
       <div className="max-w-4xl space-y-4">
@@ -347,6 +396,8 @@ function NoteContent() {
       </div>
     );
   }
+
+  const safeSourceUrl = safeHttpUrl(note.source_url);
 
   return (
     <div className="max-w-4xl">
@@ -773,12 +824,16 @@ function NoteContent() {
               </span>
             ))}
           </div>
-          {note.source_url && (
-            <a href={note.source_url} target="_blank" rel="noopener noreferrer"
+          {note.source_url && (safeSourceUrl ? (
+            <a href={safeSourceUrl} target="_blank" rel="noopener noreferrer"
               className="text-xs mb-3 inline-block hover:underline" style={{ color: 'var(--accent)' }}>
               Source: {note.source_url}
             </a>
-          )}
+          ) : (
+            <span className="text-xs mb-3 inline-block" style={{ color: 'var(--text-muted)' }}>
+              Source: {note.source_url}
+            </span>
+          ))}
           <div
             className="p-6 rounded-xl prose prose-invert prose-sm max-w-none"
             style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', color: 'var(--foreground)' }}

@@ -3,14 +3,51 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const LLM_TIMEOUT = 60000; // 60 seconds for LLM calls
 
-async function apiFetch(path: string, options: RequestInit = {}, timeout = DEFAULT_TIMEOUT) {
+function getAuthHeaders(headers: Record<string, string> = {}) {
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const headers: Record<string, string> = {
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
+}
+
+function handleUnauthorized() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("token");
+  window.dispatchEvent(new Event("auth:logout"));
+}
+
+async function getErrorMessage(res: Response) {
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "detail" in body) {
+        const detail = (body as { detail?: unknown }).detail;
+        if (typeof detail === "string") return detail;
+        if (detail !== undefined) return JSON.stringify(detail);
+      }
+      return JSON.stringify(body);
+    } catch {
+      // Fall through to status text.
+    }
+  }
+  return res.statusText || `HTTP ${res.status}`;
+}
+
+async function ensureOk(res: Response, message: string) {
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) {
+    throw new Error(`${message}: ${await getErrorMessage(res)}`);
+  }
+}
+
+async function apiFetch(path: string, options: RequestInit = {}, timeout = DEFAULT_TIMEOUT) {
+  const headers = getAuthHeaders({
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -23,15 +60,7 @@ async function apiFetch(path: string, options: RequestInit = {}, timeout = DEFAU
     });
     clearTimeout(timer);
 
-    if (res.status === 401 && typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      window.dispatchEvent(new Event("auth:logout"));
-      throw new Error("Unauthorized");
-    }
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`API error ${res.status}: ${body}`);
-    }
+    await ensureOk(res, `API error ${res.status}`);
     if (res.status === 204) return null;
     return res.json();
   } catch (e: unknown) {
@@ -210,19 +239,19 @@ export async function chat(question: string, sectionSlug?: string, history: unkn
 }
 
 // Streaming Chat — returns EventSource-compatible URL and body
-export function streamChat(question: string, sectionSlug?: string, history: unknown[] = []) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+export async function streamChat(question: string, sectionSlug?: string, history: unknown[] = []) {
   const data: Record<string, unknown> = { question, history };
   if (sectionSlug) data.section_slug = sectionSlug;
 
-  return fetch(`${API_URL}/api/chat/stream`, {
+  const res = await fetch(`${API_URL}/api/chat/stream`, {
     method: "POST",
-    headers: {
+    headers: getAuthHeaders({
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    }),
     body: JSON.stringify(data),
   });
+  await ensureOk(res, "Chat stream failed");
+  return res;
 }
 
 // Wiki
@@ -264,31 +293,25 @@ export async function getOllamaModels() {
 }
 
 export async function pullOllamaModel(model: string): Promise<ReadableStream<Uint8Array> | null> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}/api/settings/ollama/pull`, {
     method: "POST",
-    headers,
+    headers: getAuthHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ model }),
   });
+  await ensureOk(res, "Ollama model pull failed");
   return res.body;
 }
 
 // Import
 export async function uploadFilesForImport(files: File[]) {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   files.forEach((f) => formData.append("files", f));
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}/api/import/upload`, {
     method: "POST",
-    headers,
+    headers: getAuthHeaders(),
     body: formData,
   });
-  if (!res.ok) throw new Error(`Import upload failed: ${res.status}`);
+  await ensureOk(res, "Import upload failed");
   return res.json();
 }
 
@@ -304,19 +327,15 @@ interface ImportFilePreview {
 }
 
 export async function confirmImport(previews: ImportFilePreview[], files: File[]) {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("data", JSON.stringify({ files: previews }));
   files.forEach((f) => formData.append("files", f));
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}/api/import/confirm`, {
     method: "POST",
-    headers,
+    headers: getAuthHeaders(),
     body: formData,
   });
-  if (!res.ok) throw new Error(`Import confirm failed: ${res.status}`);
+  await ensureOk(res, "Import confirm failed");
   return res.json();
 }
 
@@ -366,22 +385,11 @@ export async function writingAssist(title: string, content: string, mode: "conti
 }
 
 // Export
-export function exportNoteUrl(noteId: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return `${API_URL}/api/notes/export/${noteId}${token ? `?token=${token}` : ""}`;
-}
-
-export function exportSectionUrl(slug: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
-  return `${API_URL}/api/notes/export-section/${slug}${token ? `?token=${token}` : ""}`;
-}
-
 export async function exportNote(noteId: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/api/notes/export/${noteId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error("Export failed");
+  await ensureOk(res, "Export failed");
   const blob = await res.blob();
   const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "note.md";
   const url = URL.createObjectURL(blob);
@@ -393,11 +401,10 @@ export async function exportNote(noteId: string) {
 }
 
 export async function exportSection(slug: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/api/notes/export-section/${slug}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error("Export failed");
+  await ensureOk(res, "Export failed");
   const blob = await res.blob();
   const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "notes.zip";
   const url = URL.createObjectURL(blob);
@@ -449,11 +456,10 @@ export async function dismissTodo(id: string) {
 
 // Backup & Restore
 export async function exportBackup() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/api/backup/export`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error("Export backup failed");
+  await ensureOk(res, "Export backup failed");
   const blob = await res.blob();
   const filename = res.headers.get("content-disposition")?.match(/filename="(.+)"/)?.[1] || "atlasnote_backup.zip";
   const url = URL.createObjectURL(blob);
@@ -465,17 +471,14 @@ export async function exportBackup() {
 }
 
 export async function importBackup(file: File) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const formData = new FormData();
   formData.append("file", file);
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}/api/backup/import`, {
     method: "POST",
-    headers,
+    headers: getAuthHeaders(),
     body: formData,
   });
-  if (!res.ok) throw new Error(`Import backup failed: ${res.status}`);
+  await ensureOk(res, "Import backup failed");
   return res.json();
 }
 
@@ -484,11 +487,10 @@ export async function listBackups() {
 }
 
 export async function downloadBackup(filename: string) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const res = await fetch(`${API_URL}/api/backup/download/${encodeURIComponent(filename)}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: getAuthHeaders(),
   });
-  if (!res.ok) throw new Error("Download backup failed");
+  await ensureOk(res, "Download backup failed");
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

@@ -1,9 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { confirmImport } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { confirmImport, uploadFilesForImport } from "@/lib/api";
 
 interface FilePreview {
   filename: string;
@@ -90,7 +88,6 @@ function ImportContent() {
     setLogs([]);
     addLog("Starting file analysis...");
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     const allPreviews: FilePreview[] = [];
     let providerInfoShown = false;
 
@@ -100,24 +97,15 @@ function ImportContent() {
 
       try {
         addLog(`   ↳ Reading file content...`);
-        const formData = new FormData();
-        formData.append("files", file);
-        const headers: Record<string, string> = {};
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-
         addLog(`   ↳ Sending to LLM for categorization...`);
-        const res = await fetch(`${API_URL}/api/import/upload`, {
-          method: "POST",
-          headers,
-          body: formData,
-        });
-
-        if (!res.ok) {
-          addLog(`   ✗ Error analyzing "${file.name}": ${res.status}`);
+        let data;
+        try {
+          data = await uploadFilesForImport([file]);
+        } catch (err) {
+          addLog(`   ✗ Error analyzing "${file.name}": ${err instanceof Error ? err.message : String(err)}`);
+          if (err instanceof Error && err.message === "Unauthorized") break;
           continue;
         }
-
-        const data = await res.json();
 
         // Show provider info once
         if (!providerInfoShown && (data.chat_provider_info || data.embedding_provider_info)) {

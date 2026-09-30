@@ -26,6 +26,8 @@ const AuthContext = createContext<AuthContextType>({
   logout: () => {},
 });
 
+const OAUTH_STATE_KEY = "atlasnote_oauth_state";
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
@@ -60,10 +62,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const stored = localStorage.getItem("token");
     const params = new URLSearchParams(window.location.search);
     const githubCode = params.get("github_code");
+    const oauthState = params.get("state");
+
+    const loadStoredSession = () => {
+      if (stored) {
+        queueMicrotask(() => setTokenState(stored));
+        getMe()
+          .then(setUser)
+          .catch(() => {
+            localStorage.removeItem("token");
+          })
+          .finally(() => setLoading(false));
+      } else {
+        queueMicrotask(() => setLoading(false));
+      }
+    };
 
     if (githubCode) {
       // OAuth callback — exchange the code for a JWT right here,
       // because page-level components don't render while !user.
+      const storedState = sessionStorage.getItem(OAUTH_STATE_KEY);
+      sessionStorage.removeItem(OAUTH_STATE_KEY);
+      if (!oauthState || !storedState || oauthState !== storedState) {
+        console.error("GitHub login failed: invalid OAuth state");
+        window.history.replaceState({}, "", "/");
+        loadStoredSession();
+        return;
+      }
+
       if (stored) localStorage.removeItem("token");
       loginWithGitHub(githubCode)
         .then((data) => {
@@ -72,27 +98,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
         .catch((err) => {
           console.error("GitHub login failed:", err);
+          window.history.replaceState({}, "", "/");
           setLoading(false);
         });
       return;
     }
 
-    if (stored) {
-      setTokenState(stored);
-      getMe()
-        .then(setUser)
-        .catch(() => {
-          localStorage.removeItem("token");
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    loadStoredSession();
   }, []);
 
   useEffect(() => {
     if (token && !user) {
-      setLoading(true);
+      queueMicrotask(() => setLoading(true));
       getMe()
         .then(setUser)
         .catch(() => setToken(null))

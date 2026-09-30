@@ -2,7 +2,7 @@
 
 import { useAuth } from "@/lib/auth-context";
 import { useConfig } from "@/lib/config-context";
-import { loginWithGoogle, loginWithGitHub } from "@/lib/api";
+import { loginWithGoogle } from "@/lib/api";
 import { useEffect, useRef } from "react";
 
 declare global {
@@ -17,6 +17,15 @@ declare global {
   }
 }
 
+const OAUTH_STATE_KEY = "atlasnote_oauth_state";
+
+function createOAuthState() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function LoginPage() {
   const { setToken } = useAuth();
   const config = useConfig();
@@ -28,7 +37,15 @@ export function LoginPage() {
   const handleGitHubLogin = () => {
     if (!githubClientId) return;
     const redirectUri = `${window.location.origin}/api/auth/github/callback`;
-    window.location.href = `https://github.com/login/oauth/authorize?client_id=${githubClientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=read:user%20user:email`;
+    const state = createOAuthState();
+    sessionStorage.setItem(OAUTH_STATE_KEY, state);
+
+    const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
+    authorizeUrl.searchParams.set("client_id", githubClientId);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("scope", "read:user user:email");
+    authorizeUrl.searchParams.set("state", state);
+    window.location.href = authorizeUrl.toString();
   };
 
   useEffect(() => {
