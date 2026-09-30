@@ -41,6 +41,20 @@ interface Reminder {
   title: string;
   due_date: string;
   note_id: string | null;
+  note_title: string | null;
+  priority: string;
+  is_overdue: boolean;
+}
+
+function formatDueLabel(dueDate: string) {
+  const [y, m, d] = dueDate.split("-").map(Number);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((new Date(y, m - 1, d).getTime() - today.getTime()) / 86_400_000);
+  if (days < 0) return `${-days}d overdue`;
+  if (days === 0) return "Today";
+  if (days === 1) return "Tomorrow";
+  return `In ${days} days`;
 }
 
 interface DashboardData {
@@ -492,6 +506,53 @@ function DashboardContent() {
             </div>
           )}
 
+          {/* Due soon: open todos overdue or due within 7 days */}
+          {reminders.length > 0 && (
+            <div
+              className="rounded-xl p-4"
+              style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+            >
+              <h2 className="font-display font-bold text-base mb-3" style={{ color: "var(--foreground)" }}>
+                📅 Due soon
+              </h2>
+              <div className="space-y-1">
+                {reminders.map((rem) => (
+                  <div key={rem.id} className="flex items-center gap-2 p-2 rounded-lg">
+                    <button
+                      onClick={() => handleToggleTodo(rem.id)}
+                      className="w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-colors hover:opacity-80"
+                      style={{ borderColor: "var(--text-muted)" }}
+                      title="Mark as done"
+                    />
+                    {rem.note_id ? (
+                      <Link
+                        href={`/notes/${rem.note_id}`}
+                        className="text-sm truncate flex-1 hover:underline"
+                        style={{ color: "var(--text-secondary)" }}
+                        title={rem.note_title ? `${rem.title} — ${rem.note_title}` : rem.title}
+                      >
+                        {rem.title}
+                      </Link>
+                    ) : (
+                      <span className="text-sm truncate flex-1" style={{ color: "var(--text-secondary)" }} title={rem.title}>
+                        {rem.title}
+                      </span>
+                    )}
+                    <span
+                      className="text-[11px] px-1.5 py-0.5 rounded shrink-0"
+                      style={{
+                        background: rem.is_overdue ? "rgba(248,113,113,0.15)" : "rgba(122,92,255,0.12)",
+                        color: rem.is_overdue ? "#f87171" : "#a78bfa",
+                      }}
+                    >
+                      {formatDueLabel(rem.due_date)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Pending Todos */}
           <div
             className="rounded-xl p-4"
@@ -532,30 +593,6 @@ function DashboardContent() {
               </Link>
             )}
           </div>
-
-          {/* Upcoming Reminders */}
-          {reminders.length > 0 && (
-            <div
-              className="rounded-xl p-4"
-              style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
-            >
-              <h2 className="font-display font-bold text-base mb-3" style={{ color: "var(--foreground)" }}>
-                🔔 Upcoming Reminders
-              </h2>
-              <div className="space-y-1">
-                {reminders.map((rem) => (
-                  <div key={rem.id} className="flex items-center justify-between p-2 rounded-lg">
-                    <span className="text-sm truncate mr-2" style={{ color: "var(--text-secondary)" }}>
-                      {rem.title}
-                    </span>
-                    <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>
-                      {new Date(rem.due_date).toLocaleDateString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

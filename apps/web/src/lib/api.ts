@@ -454,6 +454,14 @@ export async function dismissTodo(id: string) {
   return apiFetch(`/api/todos/${id}/dismiss`, { method: "POST" });
 }
 
+export async function acceptTodo(id: string) {
+  return apiFetch(`/api/todos/${id}/accept`, { method: "POST" });
+}
+
+export async function dedupeSuggestions(dryRun = false) {
+  return apiFetch(`/api/todos/suggestions/dedupe?dry_run=${dryRun}`, { method: "POST" });
+}
+
 // Backup & Restore
 export async function exportBackup() {
   const res = await fetch(`${API_URL}/api/backup/export`, {
@@ -630,21 +638,13 @@ export async function suggestSection(data: { title: string; content: string }) {
   }, LLM_TIMEOUT);
 }
 
-// Reminders
+// Reminders: open todos that are overdue or due within the next 7 days
 export async function listReminders() {
   return apiFetch("/api/reminders/");
 }
 
 export async function getReminderCount() {
   return apiFetch("/api/reminders/count");
-}
-
-export async function dismissReminder(id: string) {
-  return apiFetch(`/api/reminders/${id}/dismiss`, { method: "POST" });
-}
-
-export async function convertReminderToTodo(id: string) {
-  return apiFetch(`/api/reminders/${id}/convert-todo`, { method: "POST" });
 }
 
 // Commands

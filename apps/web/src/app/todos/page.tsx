@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo, inferTodoPriorities } from "@/lib/api";
+import { listTodos, createTodo, updateTodo, deleteTodo, toggleTodo, dismissTodo, acceptTodo, dedupeSuggestions, inferTodoPriorities } from "@/lib/api";
 import { useToast } from "@/components/toast";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -128,6 +128,38 @@ function TodosContent() {
       await loadTodos();
     } catch {
       toastError("Failed to dismiss suggestion");
+    }
+  };
+
+  const handleAccept = async (id: string) => {
+    try {
+      await acceptTodo(id);
+      toastSuccess("Kept as a regular todo");
+      await loadTodos();
+    } catch {
+      toastError("Failed to keep suggestion");
+    }
+  };
+
+  const handleDedupe = async () => {
+    try {
+      const preview = await dedupeSuggestions(true);
+      if (!preview?.removed) {
+        toastSuccess("No duplicate suggestions found");
+        return;
+      }
+      const ok = await confirm({
+        title: "Remove duplicate suggestions",
+        message: `${preview.removed} suggested todo${preview.removed === 1 ? "" : "s"} duplicate another open todo and will be removed. The best version of each is kept.`,
+        confirmLabel: "Remove",
+        variant: "danger",
+      });
+      if (!ok) return;
+      const res = await dedupeSuggestions(false);
+      toastSuccess(`Removed ${res?.removed ?? 0} duplicate suggestions`);
+      await loadTodos();
+    } catch {
+      toastError("Failed to remove duplicates");
     }
   };
 
@@ -294,6 +326,24 @@ function TodosContent() {
         ))}
       </div>
 
+      {filter === "suggested" && (
+        <div
+          className="flex items-center justify-between gap-3 mb-4 px-3 py-2 rounded-lg text-xs"
+          style={{ background: "rgba(122,92,255,0.06)", border: "1px solid rgba(122,92,255,0.15)", color: "var(--text-muted)" }}
+        >
+          <span>
+            AI suggestions from recently edited notes. Keep ✓ the useful ones; dismissed ones won&apos;t be suggested again.
+          </span>
+          <button
+            onClick={handleDedupe}
+            className="shrink-0 px-3 py-1.5 rounded-lg font-medium transition-opacity hover:opacity-80"
+            style={{ background: "rgba(122,92,255,0.12)", color: "#a78bfa" }}
+          >
+            🧹 Remove duplicates
+          </button>
+        </div>
+      )}
+
       {/* Todo list */}
       {loading ? (
         <p style={{ color: "var(--text-muted)" }}>Loading...</p>
@@ -314,6 +364,7 @@ function TodosContent() {
               onToggle={handleToggle}
               onDelete={handleDelete}
               onDismiss={handleDismiss}
+              onAccept={handleAccept}
               onUpdate={handleUpdate}
             />
           ))}
@@ -336,12 +387,14 @@ function TodoItem({
   onToggle,
   onDelete,
   onDismiss,
+  onAccept,
   onUpdate,
 }: {
   todo: Todo;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onDismiss: (id: string) => void;
+  onAccept: (id: string) => void;
   onUpdate: (id: string, data: { title?: string; description?: string; priority?: string; due_date?: string | null }) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -544,6 +597,18 @@ function TodoItem({
 
       {/* Actions */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {todo.is_suggested && !todo.is_done && (
+          <button
+            onClick={() => onAccept(todo.id)}
+            className="p-1.5 rounded-lg hover-accent"
+            style={{ color: "var(--text-muted)" }}
+            title="Keep (turn into a regular todo)"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path d="M3 8.5l3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         {todo.is_suggested && !todo.is_done && (
           <button
             onClick={() => onDismiss(todo.id)}

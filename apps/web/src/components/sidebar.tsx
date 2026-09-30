@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useCommandPalette } from "@/components/command-palette";
 import { useEffect, useState, useRef } from "react";
-import { listSections, createSection, getReminderCount, listReminders, dismissReminder, convertReminderToTodo } from "@/lib/api";
+import { listSections, createSection, getReminderCount, listReminders, toggleTodo } from "@/lib/api";
 
 interface Section {
   id: string;
@@ -150,8 +150,8 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
   const [reminderCount, setReminderCount] = useState(0);
   const [showReminders, setShowReminders] = useState(false);
   const [reminders, setReminders] = useState<{
-    id: string; title: string; due_date: string; note_id?: string;
-    note_title?: string; is_dismissed: boolean; source_text?: string;
+    id: string; title: string; due_date: string; priority: string; note_id?: string | null;
+    note_title?: string | null; is_overdue: boolean; days_until: number;
   }[]>([]);
   const [loadingReminders, setLoadingReminders] = useState(false);
   const reminderRef = useRef<HTMLDivElement>(null);
@@ -188,7 +188,8 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
       setLoadingReminders(true);
       try {
         const data = await listReminders();
-        setReminders((data || []).filter((r: { is_dismissed: boolean }) => !r.is_dismissed));
+        setReminders(data || []);
+        setReminderCount((data || []).length);
       } catch {
         setReminders([]);
       } finally {
@@ -197,33 +198,19 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
     }
   };
 
-  const handleDismissReminder = async (id: string) => {
+  const handleCompleteReminder = async (id: string) => {
     try {
-      await dismissReminder(id);
+      await toggleTodo(id);
       setReminders((prev) => prev.filter((r) => r.id !== id));
       setReminderCount((prev) => Math.max(0, prev - 1));
     } catch {}
   };
 
-  const handleConvertToTodo = async (id: string) => {
-    try {
-      await convertReminderToTodo(id);
-      setReminders((prev) => prev.filter((r) => r.id !== id));
-      setReminderCount((prev) => Math.max(0, prev - 1));
-    } catch {}
-  };
-
-  const formatDueDate = (dateStr: string) => {
-    const due = new Date(dateStr);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-    const diffDays = Math.round((dueDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
-    if (diffDays === 0) return "Today";
-    if (diffDays === 1) return "Tomorrow";
-    if (diffDays <= 7) return `In ${diffDays} days`;
-    return due.toLocaleDateString();
+  const formatDueDate = (daysUntil: number) => {
+    if (daysUntil < 0) return `${Math.abs(daysUntil)}d overdue`;
+    if (daysUntil === 0) return "Today";
+    if (daysUntil === 1) return "Tomorrow";
+    return `In ${daysUntil} days`;
   };
 
   useEffect(() => {
@@ -285,13 +272,15 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
                 style={{ background: "#1a1735", border: "1px solid rgba(122,92,255,0.2)" }}
               >
                 <div className="px-3 py-2 text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  Reminders
+                  Due soon
                 </div>
                 <div className="max-h-64 overflow-y-auto">
                   {loadingReminders ? (
                     <div className="p-4 text-center text-xs" style={{ color: "var(--text-muted)" }}>Loading…</div>
                   ) : reminders.length === 0 ? (
-                    <div className="p-4 text-center text-xs" style={{ color: "var(--text-muted)" }}>No active reminders</div>
+                    <div className="p-4 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+                      Nothing due in the next 7 days. Set a due date on a todo to be reminded here.
+                    </div>
                   ) : (
                     reminders.map((r) => (
                       <div
@@ -299,15 +288,13 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
                         className="px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
                         style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
                       >
-                        <div className="text-sm font-medium truncate" style={{ color: "var(--foreground)" }}>{r.title}</div>
+                        <div className="text-sm font-medium truncate" style={{ color: "var(--foreground)" }} title={r.title}>{r.title}</div>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                            background: formatDueDate(r.due_date) === "Today" || formatDueDate(r.due_date).includes("overdue")
-                              ? "rgba(248,113,113,0.15)" : "rgba(122,92,255,0.12)",
-                            color: formatDueDate(r.due_date) === "Today" || formatDueDate(r.due_date).includes("overdue")
-                              ? "#f87171" : "#a78bfa",
+                          <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{
+                            background: r.days_until <= 0 ? "rgba(248,113,113,0.15)" : "rgba(122,92,255,0.12)",
+                            color: r.days_until <= 0 ? "#f87171" : "#a78bfa",
                           }}>
-                            {formatDueDate(r.due_date)}
+                            {formatDueDate(r.days_until)}
                           </span>
                           {r.note_id && (
                             <Link
@@ -322,24 +309,25 @@ export function Sidebar({ onClose, width }: { onClose?: () => void; width?: numb
                         </div>
                         <div className="flex gap-1.5 mt-1.5">
                           <button
-                            onClick={() => handleDismissReminder(r.id)}
-                            className="text-[10px] px-2 py-0.5 rounded-md"
-                            style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
-                          >
-                            Dismiss
-                          </button>
-                          <button
-                            onClick={() => handleConvertToTodo(r.id)}
+                            onClick={() => handleCompleteReminder(r.id)}
                             className="text-[10px] px-2 py-0.5 rounded-md"
                             style={{ color: "#a78bfa", background: "rgba(122,92,255,0.12)" }}
                           >
-                            → Todo
+                            ✓ Done
                           </button>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
+                <Link
+                  href="/todos"
+                  className="block px-3 py-2 text-[11px] text-center hover:underline"
+                  style={{ color: "var(--accent)", borderTop: "1px solid rgba(255,255,255,0.06)" }}
+                  onClick={() => setShowReminders(false)}
+                >
+                  Open todos →
+                </Link>
               </div>
             )}
           </div>
