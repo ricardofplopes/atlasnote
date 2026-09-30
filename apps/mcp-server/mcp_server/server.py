@@ -31,36 +31,44 @@ def _headers(user_token: str = "") -> dict:
     return headers
 
 
+# LLM-backed endpoints (chat, summaries) can take a while, especially with local models.
+_HTTP_TIMEOUT = httpx.Timeout(float(os.environ.get("MCP_HTTP_TIMEOUT", "180")), connect=10.0)
+
+
+def _client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=settings.API_BASE_URL, timeout=_HTTP_TIMEOUT)
+
+
 async def _api_get(path: str) -> dict | list:
-    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+    async with _client() as client:
         resp = await client.get(f"/api{path}", headers=_headers())
         resp.raise_for_status()
         return resp.json()
 
 
 async def _api_post(path: str, data: dict = None) -> dict | list:
-    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+    async with _client() as client:
         resp = await client.post(f"/api{path}", headers=_headers(), json=data or {})
         resp.raise_for_status()
         return resp.json()
 
 
 async def _api_put(path: str, data: dict = None) -> dict | list:
-    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+    async with _client() as client:
         resp = await client.put(f"/api{path}", headers=_headers(), json=data or {})
         resp.raise_for_status()
         return resp.json()
 
 
 async def _api_delete(path: str) -> bool:
-    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+    async with _client() as client:
         resp = await client.delete(f"/api{path}", headers=_headers())
         resp.raise_for_status()
         return True
 
 
 async def _api_patch(path: str, data: dict = None) -> dict | list:
-    async with httpx.AsyncClient(base_url=settings.API_BASE_URL) as client:
+    async with _client() as client:
         resp = await client.patch(f"/api{path}", headers=_headers(), json=data or {})
         resp.raise_for_status()
         return resp.json()
