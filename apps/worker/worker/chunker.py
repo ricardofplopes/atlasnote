@@ -3,9 +3,10 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone, date
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete, exists, tuple_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.models import Base, Note, NoteChunk, Todo
@@ -161,51 +162,35 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
     return chunks
 
 
-async def process_note(note_id, content: str, session: AsyncSession, embedding_provider=None):
-    """Chunk a note's content, embed chunks, and store them."""
+async def process_note(note_id, content: str, session: AsyncSession, embedding_provider=None, source_updated_at=None) -> int:
+    """Chunk a note's content, embed chunks, and atomically replace its stored chunks.
+
+    Embedding happens before any existing chunks are touched, so a provider failure
+    raises and leaves the previous (still searchable) chunks in place.
+    `source_updated_at` is the note version the content was read from; stamping chunks
+    with it means an edit made while embedding still marks the note as stale.
+    """
     provider = embedding_provider or get_embedding_provider()
 
-    # Delete existing chunks for this note
-    existing = await session.execute(
-        select(NoteChunk).where(NoteChunk.note_id == note_id)
-    )
-    for chunk in existing.scalars().all():
-        await session.delete(chunk)
-
-    # Chunk the content
     chunks = chunk_text(content)
-    if not chunks:
-        return
+    embeddings = await provider.embed(chunks) if chunks else []
+    if len(embeddings) != len(chunks):
+        raise ValueError(f"Embedding provider returned {len(embeddings)} vectors for {len(chunks)} chunks")
 
-    # Generate embeddings
-    try:
-        embeddings = await provider.embed(chunks)
-    except Exception as e:
-        logger.error(f"Failed to embed chunks for note {note_id}: {e}")
-        # Store chunks without embeddings
-        for i, chunk_text_str in enumerate(chunks):
-            nc = NoteChunk(
-                note_id=note_id,
-                chunk_text=chunk_text_str,
-                chunk_index=i,
-                embedding=None,
-            )
-            session.add(nc)
-        await session.commit()
-        return
-
-    # Store chunks with embeddings
+    await session.execute(delete(NoteChunk).where(NoteChunk.note_id == note_id))
+    stamp = {"updated_at": source_updated_at} if source_updated_at is not None else {}
     for i, (chunk_text_str, embedding) in enumerate(zip(chunks, embeddings)):
-        nc = NoteChunk(
+        session.add(NoteChunk(
             note_id=note_id,
             chunk_text=chunk_text_str,
             chunk_index=i,
             embedding=embedding,
-        )
-        session.add(nc)
+            **stamp,
+        ))
 
     await session.commit()
     logger.info(f"Processed note {note_id}: {len(chunks)} chunks created")
+    return len(chunks)
 
 
 async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, session: AsyncSession, chat_provider=None, user_id=None):
@@ -233,8 +218,9 @@ async def auto_tag_note(note_id, title: str, content: str, existing_tags: list, 
     tags = await extract_tags(title, content, provider=chat_provider, existing_workspace_tags=existing_workspace_tags)
     if tags:
         from sqlalchemy import update
+        # Keep updated_at unchanged so auto-tagging doesn't mark the note stale and trigger re-embedding.
         await session.execute(
-            update(Note).where(Note.id == note_id).values(tags=tags)
+            update(Note).where(Note.id == note_id).values(tags=tags, updated_at=Note.updated_at)
         )
         await session.commit()
         logger.info(f"Auto-tagged note {note_id}: {tags}")
@@ -319,6 +305,56 @@ async def auto_suggest_todos(note_id, user_id, title: str, content: str, session
         logger.warning(f"Auto-suggest todos failed for note {note_id}: {e}")
 
 
+RETRY_BASE_SECONDS = 30
+RETRY_MAX_SECONDS = 30 * 60
+BATCH_SIZE = 10
+
+# note_id -> (attempts, retry_at monotonic time, note.updated_at at failure). In-memory: resets on restart.
+_failures: dict = {}
+
+
+def _record_failure(note_id, updated_at) -> tuple[int, int]:
+    attempts = _failures.get(note_id, (0, 0.0, None))[0] + 1
+    delay = min(RETRY_BASE_SECONDS * 2 ** (attempts - 1), RETRY_MAX_SECONDS)
+    _failures[note_id] = (attempts, time.monotonic() + delay, updated_at)
+    return attempts, delay
+
+
+async def _select_stale_notes(session: AsyncSession) -> list[Note]:
+    """Notes with content whose chunks are missing, outdated, or lack embeddings."""
+    fresh_chunk = exists().where(
+        NoteChunk.note_id == Note.id,
+        NoteChunk.updated_at >= Note.updated_at,
+        NoteChunk.embedding.isnot(None),
+    )
+    query = select(Note).where(
+        Note.is_deleted == False,
+        Note.content.op("~")(r"\S"),
+        ~fresh_chunk,
+    )
+
+    # Skip notes still in backoff, unless they were edited since the failure.
+    now = time.monotonic()
+    backoff = [(nid, ts) for nid, (_, retry_at, ts) in _failures.items() if retry_at > now and ts is not None]
+    if backoff:
+        query = query.where(~tuple_(Note.id, Note.updated_at).in_(backoff))
+
+    result = await session.execute(query.order_by(Note.updated_at.desc()).limit(BATCH_SIZE))
+    return list(result.scalars().all())
+
+
+async def _clear_chunks_of_empty_notes(session: AsyncSession) -> None:
+    """Remove stale chunks left behind when a note's content was cleared."""
+    result = await session.execute(
+        delete(NoteChunk).where(
+            NoteChunk.note_id.in_(select(Note.id).where(~Note.content.op("~")(r"\S")))
+        )
+    )
+    if result.rowcount:
+        await session.commit()
+        logger.info(f"Removed {result.rowcount} chunks from notes with empty content")
+
+
 async def run_worker():
     """Main worker loop — polls for notes that need re-chunking."""
     logger.info("Worker loop started")
@@ -326,31 +362,34 @@ async def run_worker():
     while True:
         try:
             async with async_session() as session:
-                # Find notes that have been updated since their chunks were last created
-                # or notes with no chunks at all
-                result = await session.execute(
-                    select(Note).where(
-                        Note.is_deleted == False,
-                        ~Note.id.in_(
-                            select(NoteChunk.note_id)
-                            .where(NoteChunk.updated_at >= Note.updated_at)
-                            .distinct()
-                        ),
-                    ).limit(10)
-                )
-                notes = result.scalars().all()
+                await _clear_chunks_of_empty_notes(session)
 
-                for note in notes:
+                # Snapshot plain values: a rollback expires ORM instances, and lazy
+                # attribute loads are not allowed in async sessions.
+                batch = [
+                    (n.id, n.user_id, n.title, n.content, list(n.tags or []), n.updated_at)
+                    for n in await _select_stale_notes(session)
+                ]
+
+                for note_id, user_id, title, content, tags, updated_at in batch:
                     try:
-                        user_cfg = await get_user_llm_config(note.user_id, session)
+                        user_cfg = await get_user_llm_config(user_id, session)
                         chat_prov = get_chat_provider_from_config(user_cfg)
                         embed_prov = get_embedding_provider_from_config(user_cfg)
-                        logger.info(f"Processing note {note.id} with chat={get_provider_info(chat_prov)}, embed={get_provider_info(embed_prov)}")
-                        await process_note(note.id, note.content, session, embedding_provider=embed_prov)
-                        await auto_tag_note(note.id, note.title, note.content, note.tags or [], session, chat_provider=chat_prov, user_id=note.user_id)
-                        await auto_suggest_todos(note.id, note.user_id, note.title, note.content, session, chat_provider=chat_prov)
+                        logger.info(f"Processing note {note_id} with chat={get_provider_info(chat_prov)}, embed={get_provider_info(embed_prov)}")
+                        await process_note(note_id, content, session, embedding_provider=embed_prov, source_updated_at=updated_at)
+                        _failures.pop(note_id, None)
                     except Exception as e:
-                        logger.error(f"Error processing note {note.id}: {e}")
+                        await session.rollback()
+                        attempts, delay = _record_failure(note_id, updated_at)
+                        logger.error(f"Error processing note {note_id} (attempt {attempts}, retrying in {delay}s): {e}")
+                        continue
+
+                    try:
+                        await auto_tag_note(note_id, title, content, tags, session, chat_provider=chat_prov, user_id=user_id)
+                        await auto_suggest_todos(note_id, user_id, title, content, session, chat_provider=chat_prov)
+                    except Exception as e:
+                        logger.warning(f"Post-processing failed for note {note_id}: {e}")
                         await session.rollback()
 
         except Exception as e:

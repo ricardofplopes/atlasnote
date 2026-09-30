@@ -5,7 +5,7 @@ import logging
 import os
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import select
@@ -29,7 +29,7 @@ def _serialize_value(val):
         return None
     if isinstance(val, uuid.UUID):
         return str(val)
-    if isinstance(val, datetime):
+    if isinstance(val, (datetime, date)):
         return val.isoformat()
     return val
 
@@ -53,7 +53,8 @@ NOTE_VERSION_COLS = [
 SETTING_COLS = ["id", "user_id", "key", "value", "updated_at"]
 TODO_COLS = [
     "id", "user_id", "note_id", "title", "description",
-    "is_done", "is_suggested", "position", "created_at", "updated_at",
+    "is_done", "is_suggested", "priority", "due_date",
+    "position", "created_at", "updated_at",
 ]
 
 
@@ -95,15 +96,16 @@ async def create_backup_zip_for_user(user_id, user_email: str, db) -> bytes:
     return buf.getvalue()
 
 
-def _cleanup_old_backups(user_email: str):
+def _cleanup_old_backups(user_id, user_email: str):
     """Keep only the latest BACKUP_RETAIN_COUNT backups for a user."""
     backup_path = Path(BACKUP_DIR)
     if not backup_path.exists():
         return
 
-    prefix = f"{user_email}_"
+    # Legacy backups were named after the user's email.
+    prefixes = (f"{user_id}_", f"{user_email}_")
     user_files = sorted(
-        [f for f in backup_path.iterdir() if f.is_file() and f.name.startswith(prefix)],
+        [f for f in backup_path.iterdir() if f.is_file() and f.name.startswith(prefixes)],
         key=lambda f: f.stat().st_mtime,
         reverse=True,
     )
@@ -132,14 +134,14 @@ async def run_auto_backup():
             try:
                 zip_bytes = await create_backup_zip_for_user(user.id, user.email, session)
                 timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-                filename = f"{user.email}_{timestamp}.zip"
+                filename = f"{user.id}_{timestamp}.zip"
                 filepath = backup_path / filename
 
                 filepath.write_bytes(zip_bytes)
-                logger.info(f"[Backup] Created backup for {user.email}: {filename} ({len(zip_bytes)} bytes)")
+                logger.info(f"[Backup] Created backup for user {user.id}: {filename} ({len(zip_bytes)} bytes)")
 
-                _cleanup_old_backups(user.email)
+                _cleanup_old_backups(user.id, user.email)
             except Exception as e:
-                logger.error(f"[Backup] Failed to backup user {user.email}: {e}")
+                logger.error(f"[Backup] Failed to backup user {user.id}: {e}")
 
     logger.info(f"[Backup] Auto-backup complete for {len(users)} user(s)")
