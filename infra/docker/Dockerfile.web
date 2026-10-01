@@ -11,8 +11,12 @@ RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+# The standalone server binds to $HOSTNAME, which Docker sets to the container ID;
+# bind to all interfaces so the localhost healthcheck can reach it.
 ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
 
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
